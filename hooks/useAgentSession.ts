@@ -20,6 +20,7 @@ import { rememberSessionContinuation, clearSessionContinuation } from "@/lib/wor
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { ContextUsage, GoalStatusInfo, SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
+import { useI18n } from "@/hooks/useI18n";
 
 export interface SessionData {
   runtimeId?: string;
@@ -218,10 +219,11 @@ type EventStreamConnectionAttempt = {
 };
 
 class EventStreamConnectionError extends Error {
-  constructor(public readonly status: Exclude<EventStreamConnectionStatus, "connected">) {
-    super(status === "timeout"
-      ? "Timed out connecting to the agent event stream. Please try again."
-      : "Failed to connect to the agent event stream. Please try again.");
+  constructor(
+    public readonly status: Exclude<EventStreamConnectionStatus, "connected">,
+    message: string,
+  ) {
+    super(message);
     this.name = "EventStreamConnectionError";
   }
 }
@@ -371,6 +373,7 @@ type SlashCommandsResponse = {
 };
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
+  const { t } = useI18n();
   const {
     session, newSessionCwd, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -707,7 +710,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
+  const promoteNewSession = useCallback((messageCount = 0, firstMessage = t("common.noMessages")) => {
     const sid = sessionIdRef.current;
     if (!mountedRef.current || !isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
     newSessionPromotedRef.current = true;
@@ -723,7 +726,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       firstMessage,
       transient: true,
     });
-  }, [isNew, newSessionCwd, onSessionCreated]);
+  }, [isNew, newSessionCwd, onSessionCreated, t]);
 
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -816,7 +819,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
-    if (!mountedRef.current) return Promise.reject(new Error("Session is no longer active"));
+    if (!mountedRef.current) return Promise.reject(new Error(t("chat.sessionInactive")));
     closeEvents();
     const es = new EventSource(`/api/agent/${encodeURIComponent(runtimeIdRef.current ?? sid)}/events`);
     eventSourceRef.current = es;
@@ -899,32 +902,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
     eventConnectionAttemptRef.current = { source: es, promise, pending: true, connected: false, cancel };
     return promise;
-  }, [closeEvents]);
+  }, [closeEvents, t]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
-    if (!mountedRef.current) throw new Error("Session is no longer active");
+    if (!mountedRef.current) throw new Error(t("chat.sessionInactive"));
     const requestedRuntimeId = runtimeIdRef.current;
     if (requestedRuntimeId) {
       const stateRes = await fetch(`/api/agent/${encodeURIComponent(requestedRuntimeId)}`);
       if (stateRes.ok) {
         const state = await stateRes.json() as { running?: boolean; state?: AgentStateResponse };
-        if (!mountedRef.current || sessionIdRef.current !== sid) throw new Error("Session is no longer active");
+        if (!mountedRef.current || sessionIdRef.current !== sid) throw new Error(t("chat.sessionInactive"));
         const stale = followRuntimeState(state.state, sid, requestedRuntimeId);
         if (!stale && !state.running) {
-          if (!state.state?.sessionId) throw new Error("Runtime identity expired; reopen the intended session");
+          if (!state.state?.sessionId) throw new Error(t("chat.runtimeExpired"));
           runtimeIdRef.current = null;
         }
         sid = sessionIdRef.current ?? sid;
       }
     }
-    if (!mountedRef.current) throw new Error("Session is no longer active");
+    if (!mountedRef.current) throw new Error(t("chat.sessionInactive"));
     const current = eventSourceRef.current;
     if (current && eventSourceSessionIdRef.current === sid
       && eventSourceRuntimeIdRef.current === runtimeIdRef.current) {
       const attempt = eventConnectionAttemptRef.current;
       if (attempt?.source === current && attempt.pending) {
         const result = await attempt.promise;
-        if (!mountedRef.current) throw new Error("Session is no longer active");
+        if (!mountedRef.current) throw new Error(t("chat.sessionInactive"));
         if (result.status === "connected" && eventSourceRef.current === current
           && eventSourceRuntimeIdRef.current === runtimeIdRef.current
           && current.readyState === EventSource.OPEN) return;
@@ -936,7 +939,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const result = await connectEvents(sessionIdRef.current ?? sid);
     if (!mountedRef.current || eventSourceRef.current !== result.source) {
       result.source.close();
-      throw new Error("Session is no longer active");
+      throw new Error(t("chat.sessionInactive"));
     }
     if (result.status === "connected") return;
     if (eventSourceRef.current === result.source) eventSourceRef.current = null;
@@ -944,8 +947,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventSourceRuntimeIdRef.current = null;
     if (eventConnectionAttemptRef.current?.source === result.source) eventConnectionAttemptRef.current = null;
     result.source.close();
-    throw new EventStreamConnectionError(result.status);
-  }, [connectEvents, followRuntimeState]);
+    throw new EventStreamConnectionError(
+      result.status,
+      result.status === "timeout" ? t("chat.eventStreamTimeout") : t("chat.eventStreamFailed"),
+    );
+  }, [connectEvents, followRuntimeState, t]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -1432,12 +1438,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         break;
       case "prompt_error":
-        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
+        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? t("chat.commandFailed") });
         break;
       case "extension_error":
         addNotice({
           type: "error",
-          message: (event.error as string | undefined) ?? "Extension command failed",
+          message: (event.error as string | undefined) ?? t("chat.extensionCommandFailed"),
         });
         break;
       case "message_start":
@@ -1628,7 +1634,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, followSessionIdentity, followRuntimeState, refreshContextUsage, scheduleEventStreamClose, settleUiStage, t]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1757,7 +1763,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setBashRunning(true);
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
-      if (!sid) throw new Error("Unable to create a session for the shell command");
+      if (!sid) throw new Error(t("chat.shellSessionFailed"));
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -1774,7 +1780,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session]);
+  }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session, t]);
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
@@ -1802,9 +1808,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleFork = useCallback(async (
     entryId?: string,
   ): Promise<{ forked: boolean; error?: string }> => {
-    if (bashRunningRef.current) return { forked: false, error: "Cannot fork while a shell command is running" };
+    if (bashRunningRef.current) return { forked: false, error: t("chat.forkBlockedByShell") };
     const sid = sessionIdRef.current;
-    if (!sid) return { forked: false, error: "No active session to fork" };
+    if (!sid) return { forked: false, error: t("chat.noSessionToFork") };
     setForkingEntryId(entryId ?? null);
     try {
       const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
@@ -1816,14 +1822,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (mountedRef.current) onSessionForked?.(newSessionId);
         return { forked: true };
       }
-      return { forked: false, error: "Fork was cancelled" };
+      return { forked: false, error: t("chat.forkCancelled") };
     } catch (e) {
       console.error("Fork failed:", e);
       return { forked: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
       setForkingEntryId(null);
     }
-  }, [onSessionForked]);
+  }, [onSessionForked, t]);
 
   const handleNavigate = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -1879,7 +1885,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCurrentModelOverride(previousOverride);
       addNotice({
         type: "error",
-        message: `Failed to switch model: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("chat.modelSwitchFailed", { message: e instanceof Error ? e.message : String(e) }),
       });
       // A failed response can still follow a server-side write (for example, a
       // dropped connection), so let the session file settle the displayed model.
@@ -1888,7 +1894,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel, t]);
 
   /**
    * Switch the session onto the model configured for one of omp's roles.
@@ -1984,7 +1990,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (result.error) {
         addNotice({ type: "error", message: result.error });
       } else if (result.action !== "openSessionStats") {
-        addNotice({ type: "success", message: result.message ?? "Command completed" });
+        addNotice({ type: "success", message: result.message ?? t("chat.commandCompleted") });
       }
       return result;
     };
@@ -1992,7 +1998,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       switch (commandName) {
         case "compact": {
-          if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
+          if (!sid || isCompacting) return complete({ handled: true, error: t("chat.noSessionToCompact") });
           setIsCompacting(true);
           setCompactError(null);
           setCompactResult(null);
@@ -2002,11 +2008,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }, runtimeIdRef);
           setCompactResult(readCompactResult(result, "manual"));
           if (await loadSession(sid, true)) promoteNewSession();
-          return complete({ handled: true, message: "Compacted context" });
+          return complete({ handled: true, message: t("chat.compactedContext") });
         }
 
         case "reload": {
-          if (!sid) return complete({ handled: true, error: "No active session to reload" });
+          if (!sid) return complete({ handled: true, error: t("chat.noSessionToReload") });
           await sendAgentCommand(sid, { type: "reload" }, runtimeIdRef);
           await Promise.all([
             loadSession(sid, false, true),
@@ -2014,19 +2020,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             loadSlashCommands(),
             loadModels(),
           ]);
-          return complete({ handled: true, message: "Reloaded session resources" });
+          return complete({ handled: true, message: t("chat.reloadedResources") });
         }
 
         case "name": {
-          if (!sid) return complete({ handled: true, error: "No active session to name" });
-          if (!args) return complete({ handled: true, error: "Usage: /name <name>" });
+          if (!sid) return complete({ handled: true, error: t("chat.noSessionToName") });
+          if (!args) return complete({ handled: true, error: t("chat.nameUsage") });
           await sendAgentCommand(sid, { type: "set_session_name", name: args }, runtimeIdRef);
           if (await loadSession(sid)) promoteNewSession();
-          return complete({ handled: true, message: `Session renamed to ${args}` });
+          return complete({ handled: true, message: t("chat.sessionRenamed", { name: args }) });
         }
 
         case "session": {
-          if (!sid) return complete({ handled: true, error: "No active session" });
+          if (!sid) return complete({ handled: true, error: t("i18n.noActiveSession") });
           const stats = await sendAgentCommand<SessionStatsInfo>(sid, { type: "get_session_stats" }, runtimeIdRef);
           if (stats) {
             setSessionStatsOverride(stats);
@@ -2037,25 +2043,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
 
         case "copy": {
-          if (!sid) return complete({ handled: true, error: "No active session" });
+          if (!sid) return complete({ handled: true, error: t("i18n.noActiveSession") });
           const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" }, runtimeIdRef);
           const textToCopy = data?.text ?? "";
-          if (!textToCopy) return complete({ handled: true, error: "No assistant message to copy" });
+          if (!textToCopy) return complete({ handled: true, error: t("chat.noAssistantMessageToCopy") });
           await navigator.clipboard.writeText(textToCopy);
-          return complete({ handled: true, message: "Copied last assistant message" });
+          return complete({ handled: true, message: t("chat.copiedLastAssistant") });
         }
 
         case "fork": {
-          if (!sid) return complete({ handled: true, error: "No active session to fork" });
+          if (!sid) return complete({ handled: true, error: t("chat.noSessionToFork") });
           const result = await handleFork();
           if (!result.forked) {
-            return complete({ handled: true, error: result.error ?? "Fork failed" });
+            return complete({ handled: true, error: result.error ?? t("chat.forkFailed") });
           }
-          return complete({ handled: true, message: "Forked a new session" });
+          return complete({ handled: true, message: t("chat.forkedSession") });
         }
 
         case "goal": {
-          if (!sid) return complete({ handled: true, error: "No active session" });
+          if (!sid) return complete({ handled: true, error: t("i18n.noActiveSession") });
           const result = await sendAgentCommand<GoalCommandResponse>(sid, { type: "goal", args }, runtimeIdRef);
           setGoalStatus(result?.status ?? null);
           if (result?.error) return complete({ handled: true, error: result.error });
@@ -2070,13 +2076,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             if (result.message) addNotice({ type: "success", message: result.message });
             return { handled: true, prompt: result.prompt };
           }
-          return complete({ handled: true, message: result?.message ?? "Command completed" });
+          return complete({ handled: true, message: result?.message ?? t("chat.commandCompleted") });
         }
 
         case "handoff": {
-          if (!sid) return complete({ handled: true, error: "No active session" });
+          if (!sid) return complete({ handled: true, error: t("i18n.noActiveSession") });
           if (agentRunningRef.current || bashRunningRef.current) {
-            return complete({ handled: true, error: "Cannot hand off while the session is busy" });
+            return complete({ handled: true, error: t("chat.handoffBusy") });
           }
           // Handoff generation is a long oneshot LLM call; keep the composer
           // busy through it with the existing agent-running state so a prompt
@@ -2092,13 +2098,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               ...(args ? { customInstructions: args } : {}),
             }, runtimeIdRef);
             if (!result || result.cancelled) {
-              return complete({ handled: true, error: "Handoff cancelled" });
+              return complete({ handled: true, error: t("chat.handoffCancelled") });
             }
             // omp 18 hands off in place, so the session keeps its id and gains
             // a handoff compaction entry: reload this transcript rather than
             // navigating to a replacement session.
             if (mountedRef.current && await loadSession(sessionIdRef.current ?? currentSid, true)) promoteNewSession();
-            return complete({ handled: true, message: "Context handed off and compacted in place" });
+            return complete({ handled: true, message: t("chat.handoffDone") });
           } finally {
             if (mountedRef.current) {
               agentRunningRef.current = false;
@@ -2111,7 +2117,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
 
         default: {
-          if (!sid) return complete({ handled: true, error: "No active session" });
+          if (!sid) return complete({ handled: true, error: t("i18n.noActiveSession") });
           const result = await sendAgentCommand<{
             handled: boolean;
             output?: string[];
@@ -2125,7 +2131,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (output) appendCommandOutput(output);
           if (result.prompt) return { handled: true, prompt: result.prompt };
           if (output) return { handled: true };
-          return complete({ handled: true, message: "Command completed" });
+          return complete({ handled: true, message: t("chat.commandCompleted") });
         }
       }
     } catch (e) {
@@ -2133,7 +2139,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, scheduleEventStreamClose]);
+  }, [addNotice, appendCommandOutput, ensureEventsConnected, ensureNewSession, handleFork, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, scheduleEventStreamClose, t]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -2213,9 +2219,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to recall queued messages:", e);
-      addNotice({ type: "error", message: "Failed to recall queued messages" });
+      addNotice({ type: "error", message: t("chat.recallQueueFailed") });
     }
-  }, [opts.chatInputRef, addNotice]);
+  }, [opts.chatInputRef, addNotice, t]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
@@ -2230,10 +2236,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await loadSession(sid);
     } catch (e) {
       console.error("Failed to set thinking level:", e);
-      addNotice({ type: "error", message: "Failed to set thinking level" });
+      addNotice({ type: "error", message: t("chat.thinkingLevelFailed") });
       await loadSession(sid);
     }
-  }, [isNew, loadSession, addNotice]);
+  }, [isNew, loadSession, addNotice, t]);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
     const toolNames = getToolNamesForPreset(preset);

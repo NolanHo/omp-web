@@ -1982,7 +1982,7 @@ function ArchivedSessionsSection({
         >
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
-        {t("sidebar.archived")} ({sessions.length})
+        {t("sidebar.archivedWithCount", { count: sessions.length })}
       </button>
       {open && (
         <div style={{ paddingLeft: 12 }}>
@@ -2179,7 +2179,7 @@ function UnreadSessionIndicator() {
  */
 function showProjectActivity(
   activity: { running: number; unread: number } | undefined,
-  t: (key: string) => string,
+  t: ReturnType<typeof useI18n>["t"],
 ): ReactNode {
   if (!activity || (activity.running === 0 && activity.unread === 0)) return null;
   return (
@@ -2187,7 +2187,7 @@ function showProjectActivity(
       {activity.running > 0 && (
         <span
           title={t("sidebar.agentRunning")}
-          aria-label={`${t("sidebar.agentRunning")} (${activity.running})`}
+          aria-label={`${t("sidebar.agentRunning")}${t("common.parenthesized", { value: activity.running })}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--accent)", fontSize: 10, fontFamily: "var(--font-mono)" }}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block" }}>
@@ -2202,7 +2202,7 @@ function showProjectActivity(
       {activity.unread > 0 && (
         <span
           title={t("sidebar.newSessionActivity")}
-          aria-label={`${t("sidebar.newSessionActivity")} (${activity.unread})`}
+          aria-label={`${t("sidebar.newSessionActivity")}${t("common.parenthesized", { value: activity.unread })}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#0891b2", fontSize: 10, fontFamily: "var(--font-mono)" }}
         >
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />

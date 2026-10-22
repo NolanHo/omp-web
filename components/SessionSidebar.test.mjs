@@ -32,11 +32,11 @@ test("keeps subagents out of the left session sidebar", () => {
 test("includes project activity counts in accessible labels", () => {
   assert.match(
     source,
-    /aria-label=\{`\$\{t\("sidebar\.agentRunning"\)\} \(\$\{activity\.running\}\)`\}/,
+    /aria-label=\{`\$\{t\("sidebar\.agentRunning"\)\}\$\{t\("common\.parenthesized", \{ value: activity\.running \}\)\}`\}/,
   );
   assert.match(
     source,
-    /aria-label=\{`\$\{t\("sidebar\.newSessionActivity"\)\} \(\$\{activity\.unread\}\)`\}/,
+    /aria-label=\{`\$\{t\("sidebar\.newSessionActivity"\)\}\$\{t\("common\.parenthesized", \{ value: activity\.unread \}\)\}`\}/,
   );
 });
 

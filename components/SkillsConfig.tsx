@@ -8,20 +8,31 @@ import type {
   SkillInstallScope,
   SkillSearchResult,
   SkillsResponse,
+  SkillUpdateCode,
   SkillUpdateResult,
 } from "@/lib/api-types";
+
+type Translator = ReturnType<typeof useI18n>["t"];
 
 function shortenPath(p: string): string {
   // Match common home dir patterns: /Users/xxx, /home/xxx
   return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }
 
+/** Internal source label of a skill; also a grouping key, so never localized. */
 function sourceLabel(skill: Skill): string {
   const src = skill.sourceInfo?.source;
   const scope = skill.sourceInfo?.scope;
   if (scope === "user" || src === "user") return "global";
   if (scope === "project" || src === "project") return "project";
   return "path";
+}
+
+/** Display text for an internal source label (`global` / `project` / `path`). */
+function sourceLabelText(source: string, t: Translator): string {
+  if (source === "global") return t("common.scopeGlobal");
+  if (source === "project") return t("common.scopeProject");
+  return t("skills.sourcePath");
 }
 
 function skillGroupLabel(skill: Skill): string {
@@ -36,8 +47,37 @@ function updateKey(skill: Skill): string | null {
     : null;
 }
 
-function shortVersion(version?: string): string {
-  return version ? version.slice(0, 8) : "unknown";
+function shortVersion(version: string | undefined, t: Translator): string {
+  return version ? version.slice(0, 8) : t("i18n.unknown");
+}
+
+/**
+ * Localized text for a stable update-check code.
+ *
+ * A code this build does not know returns null so the caller can fall back to
+ * the remote text instead of printing a key.
+ */
+function updateCodeText(code: SkillUpdateCode, t: Translator): string | null {
+  const key = `skills.update.${code}`;
+  const translated = t(key);
+  // A catalog that lost the key returns the key itself; treat that as unknown.
+  return translated === key ? null : translated;
+}
+
+/**
+ * Localized text for one skill's update status.
+ *
+ * Known failures arrive as a stable `code` the panel translates itself; HTTP
+ * statuses and git output stay remote text and are shown verbatim.
+ */
+function updateStatusText(update: SkillUpdateResult, t: Translator): string {
+  if (update.code) {
+    const localized = updateCodeText(update.code, t);
+    if (localized) return localized;
+  }
+  if (update.state === "up-to-date") return t("i18n.upToDate");
+  if (update.state === "unsupported") return t("i18n.automaticChecksUnavailable");
+  return update.message ?? t("i18n.checkFailed");
 }
 
 function Toggle({
@@ -146,7 +186,7 @@ function SkillDetail({
                 label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
             }}
           >
-            {label}
+            {sourceLabelText(label, t)}
           </span>
           <span
             style={{
@@ -196,7 +236,7 @@ function SkillDetail({
           <span
             style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
           >
-            Source
+            {t("skills.source")}
           </span>
           <a
             href={skill.install.skillsShUrl}
@@ -233,7 +273,7 @@ function SkillDetail({
           <span
             style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
           >
-            Version
+            {t("i18n.version")}
           </span>
           <div
             style={{
@@ -250,7 +290,7 @@ function SkillDetail({
                 color: "var(--text-muted)",
               }}
             >
-              {shortVersion(updateStatus?.currentVersion ?? skill.install.versionHash)}
+              {shortVersion(updateStatus?.currentVersion ?? skill.install.versionHash, t)}
             </span>
             {skill.install.canCheckForUpdates && (
               <button
@@ -278,7 +318,7 @@ function SkillDetail({
                   color: "#d97706",
                 }}
               >
-                {shortVersion(updateStatus.latestVersion)}
+                {shortVersion(updateStatus.latestVersion, t)}
               </span>
             )}
             {(checkingUpdate ||
@@ -297,11 +337,9 @@ function SkillDetail({
               >
                 {checkingUpdate
                    ? t("i18n.checking")
-                  : updateStatus?.state === "up-to-date"
-                     ? t("i18n.upToDate")
-                    : updateStatus?.state === "unsupported"
-                         ? t("i18n.automaticChecksUnavailable")
-                         : updateStatus?.message || t("i18n.checkFailed")}
+                  : updateStatus
+                    ? updateStatusText(updateStatus, t)
+                    : t("i18n.checkFailed")}
               </span>
             )}
             {updateStatus?.state === "update-available" && (
@@ -334,7 +372,7 @@ function SkillDetail({
         <span
           style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
         >
-          Name
+          {t("session.name")}
         </span>
         <span
           style={{
@@ -351,7 +389,7 @@ function SkillDetail({
         <span
           style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}
         >
-          Description
+          {t("skills.description")}
         </span>
         <span
           style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}
@@ -411,13 +449,13 @@ function AddSkillPanel({
         return;
       }
       setResults(d.results ?? []);
-      if ((d.results ?? []).length === 0) setSearchError("No skills found");
+      if ((d.results ?? []).length === 0) setSearchError(t("i18n.noSkills"));
     } catch (e) {
       setSearchError(String(e));
     } finally {
       setSearching(false);
     }
-  }, []);
+  }, [t]);
 
   const install = useCallback(
     async (pkg: string) => {
@@ -539,7 +577,7 @@ function AddSkillPanel({
                     s === "global" ? "1px solid var(--border)" : "none",
                 }}
               >
-                {s}
+                {s === "global" ? t("common.scopeGlobal") : t("common.scopeProject")}
               </button>
             ))}
           </div>
@@ -689,16 +727,24 @@ function AddSkillPanel({
           <div
             style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.8 }}
           >
-            Search{" "}
-            <a
-              href="https://skills.sh"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
-            >
-              skills.sh
-            </a>{" "}
-            to discover and install skills for your agent.
+            {(() => {
+              // The sentence owns the word order; only the link text is a product name.
+              const [before, after = ""] = t("skills.searchHint").split("{source}");
+              return (
+                <>
+                  {before}
+                  <a
+                    href="https://skills.sh"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "var(--accent)", textDecoration: "none" }}
+                  >
+                    skills.sh
+                  </a>
+                  {after}
+                </>
+              );
+            })()}
           </div>
         )
       )}
@@ -1041,41 +1087,47 @@ export function SkillsConfig({
                 </div>
               ) : (
                 (() => {
-                  const groups: { label: string; skills: typeof skills }[] = [];
+                  const groups: { key: string; label: string; skills: typeof skills }[] = [];
+                  // `key` stays the raw group label: it is also the collapsed-group state key.
                   const groupDefinitions = [
                     {
-                      label: "project / skills.sh",
+                      key: "project / skills.sh",
+                      label: t("skills.sourceWithSkillsSh", { source: t("common.scopeProject") }),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "project" &&
                         Boolean(skill.install?.skillsShUrl),
                     },
                     {
-                      label: "project",
+                      key: "project",
+                      label: t("common.scopeProject"),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "project" &&
                         !skill.install?.skillsShUrl,
                     },
                     {
-                      label: "global / skills.sh",
+                      key: "global / skills.sh",
+                      label: t("skills.sourceWithSkillsSh", { source: t("common.scopeGlobal") }),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "global" &&
                         Boolean(skill.install?.skillsShUrl),
                     },
                     {
-                      label: "global",
+                      key: "global",
+                      label: t("common.scopeGlobal"),
                       matches: (skill: Skill) =>
                         sourceLabel(skill) === "global" &&
                         !skill.install?.skillsShUrl,
                     },
                     {
-                      label: "path",
+                      key: "path",
+                      label: t("skills.sourcePath"),
                       matches: (skill: Skill) => sourceLabel(skill) === "path",
                     },
                   ];
-                  for (const { label, matches } of groupDefinitions) {
+                  for (const { key, label, matches } of groupDefinitions) {
                     const grpSkills = skills.filter(matches);
                     if (grpSkills.length > 0)
-                      groups.push({ label, skills: grpSkills });
+                      groups.push({ key, label, skills: grpSkills });
                   }
                   const renderSkillRow = (skill: Skill) => {
                     const isSelected =
@@ -1163,16 +1215,16 @@ export function SkillsConfig({
                     );
                   };
                   return groups.map(
-                    ({ label: grpLabel, skills: grpSkills }) => {
+                    ({ key: grpKey, label: grpLabel, skills: grpSkills }) => {
                       const activeSkills = grpSkills.filter(
                         (skill) => !skill.disableModelInvocation,
                       );
                       const dormantSkills = grpSkills.filter(
                         (skill) => skill.disableModelInvocation,
                       );
-                      const dormantOpen = dormantGroupsOpen[grpLabel] ?? false;
+                      const dormantOpen = dormantGroupsOpen[grpKey] ?? false;
                       return (
-                        <div key={grpLabel} style={{ marginBottom: 6 }}>
+                        <div key={grpKey} style={{ marginBottom: 6 }}>
                           <div
                             style={{
                               padding: "4px 8px 3px",
@@ -1192,7 +1244,7 @@ export function SkillsConfig({
                                 onClick={() =>
                                   setDormantGroupsOpen((current) => ({
                                     ...current,
-                                    [grpLabel]: !dormantOpen,
+                                    [grpKey]: !dormantOpen,
                                   }))
                                 }
                                 style={{

@@ -13,6 +13,11 @@
   Fork of <a href="https://github.com/agegr/pi-web">pi-web</a> by <a href="https://github.com/agegr">@agegr</a> 
 </p>
 
+<p align="center">
+  <b>This fork</b> completes the Simplified Chinese (zh-CN) interface: every remaining screen is localized, and
+  <a href="./docs/i18n.md">docs/i18n.md</a> records the terms glossary plus the boundaries of what stays English.
+</p>
+
 
 The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web reads the sessions the `omp` CLI already writes and gives you a browser workspace for session browsing, real-time chat, model roles, provider configuration, skill management, and project file preview.
 

@@ -31,12 +31,27 @@ export type SkillUpdateState =
   | "unsupported"
   | "error";
 
+/**
+ * Stable reason codes for update checks that fail for a known reason.
+ *
+ * The skills panel localizes these itself (`skills.update.<code>`), so the
+ * server never ships English UI copy for them. Anything the remote side
+ * actually said stays verbatim in `message`.
+ */
+export type SkillUpdateCode =
+  | "remotePathNotFound"
+  | "versionHashMissing"
+  | "lockAutoCheckUnavailable";
+
 export interface SkillUpdateResult {
   package: string;
   scope: SkillInstallScope;
   state: SkillUpdateState;
   currentVersion?: string;
   latestVersion?: string;
+  /** Localizable reason for a failed check; absent when only `message` applies. */
+  code?: SkillUpdateCode;
+  /** Untranslated text from the remote side, shown verbatim. */
   message?: string;
 }
 

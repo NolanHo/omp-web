@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
+import { I18nProvider, useI18n } from "@/hooks/useI18n";
+import { translateWithCode } from "@/lib/i18n/rich-text";
+import type { TranslationParams } from "@/lib/i18n/types";
 import styles from "./recover.module.css";
 
 /**
@@ -17,7 +20,51 @@ const MIN_PASSWORD_LENGTH = 8;
 
 type Stage = "idle" | "code-sent" | "done";
 
+type Translate = (key: string, params?: TranslationParams) => string;
+
+/** Error body of `POST /api/web-access/recovery`: `error` is the original text, `code` the stable one. */
+interface RecoveryErrorBody {
+  error?: string;
+  code?: string;
+  /** Credential file path, sent with the `credentialUnreadable` code. */
+  file?: string;
+  /** Password length limit, sent with the `passwordTooShort`/`passwordTooLong` codes. */
+  count?: number;
+  /** Attempts left, sent with the `invalidCode` code. */
+  remainingAttempts?: number;
+}
+
+/**
+ * Translate a server error by its stable code, falling back to the English text.
+ * @param body parsed error response
+ * @param status HTTP status, used when the body carries no text
+ * @param t translation function of the active locale
+ * @returns localized message, or the server's original text for unknown codes
+ */
+function describeServerError(body: RecoveryErrorBody, status: number, t: Translate): string {
+  const fallback = body.error ?? `HTTP ${status}`;
+  if (!body.code) return fallback;
+  const key = `access.error.${body.code}`;
+  const count = body.remainingAttempts ?? body.count;
+  const params: TranslationParams = {};
+  if (body.file) params.file = body.file;
+  if (count !== undefined) params.count = count;
+  const translated = t(key, params);
+  return translated === key ? fallback : translated;
+}
+
 export default function RecoverPage() {
+  // `/recover` is reachable before signing in and sits outside the app shell,
+  // so the page carries its own locale context instead of relying on app/page.tsx.
+  return (
+    <I18nProvider>
+      <RecoverCard />
+    </I18nProvider>
+  );
+}
+
+function RecoverCard() {
+  const { t, locale } = useI18n();
   const [stage, setStage] = useState<Stage>("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +79,10 @@ export default function RecoverPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await response.json() as { ok?: boolean; expiresAt?: number; error?: string };
-    if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+    const data = await response.json() as { ok?: boolean; expiresAt?: number } & RecoveryErrorBody;
+    if (!response.ok || data.error) throw new Error(describeServerError(data, response.status, t));
     return data;
-  }, []);
+  }, [t]);
 
   const requestCode = useCallback(async () => {
     setBusy(true);
@@ -53,7 +100,7 @@ export default function RecoverPage() {
 
   const completeRecovery = useCallback(async () => {
     if (password !== confirmation) {
-      setError("The two passwords do not match.");
+      setError(t("common.passwordsDoNotMatch"));
       return;
     }
     setBusy(true);
@@ -69,7 +116,7 @@ export default function RecoverPage() {
     } finally {
       setBusy(false);
     }
-  }, [code, confirmation, password, post]);
+  }, [code, confirmation, password, post, t]);
 
   const canSubmit = !busy
     && code.trim().length > 0
@@ -80,40 +127,38 @@ export default function RecoverPage() {
     <main className={styles.page}>
       <div className={styles.card}>
         <div className={styles.eyebrow}>omp-web</div>
-        <h1 className={styles.title}>Recover access</h1>
+        <h1 className={styles.title}>{t("recover.title")}</h1>
 
         {stage === "done" ? (
           <>
             <p className={styles.lead}>
-              The password was changed and password access is on. Open omp-web and sign in with the
-              username <code>omp</code> and your new password.
+              {translateWithCode(t, "recover.doneLead", {}, { username: "omp" })}
             </p>
-            <Link className={styles.primary} href="/">Back to omp-web</Link>
+            <Link className={styles.primary} href="/">{t("recover.back")}</Link>
           </>
         ) : (
           <>
             <p className={styles.lead}>
-              omp-web stores your password as a hash and cannot read it back. To set a new one, it prints a one-time
-              recovery code <strong>on its own console</strong> — the terminal running omp-web. Read the code there
-              and enter it below.
+              {t("recover.lead")}
             </p>
             <p className={styles.aside}>
-              No terminal at hand? Run <code>omp-web --reset-password</code> on that machine instead.
+              {translateWithCode(t, "recover.resetAside", {}, { command: "omp-web --reset-password" })}
             </p>
 
             <button type="button" className={styles.secondary} disabled={busy} onClick={() => void requestCode()}>
-              {busy && stage === "idle" ? "Requesting…" : stage === "code-sent" ? "Send another code" : "Print a recovery code"}
+              {busy && stage === "idle" ? t("recover.requesting") : stage === "code-sent" ? t("recover.sendAnother") : t("recover.printCode")}
             </button>
 
             {stage === "code-sent" && (
               <p className={styles.notice}>
-                A code was printed on the server console
-                {expiresAt ? ` and is valid until ${new Date(expiresAt).toLocaleTimeString()}` : ""}.
+                {expiresAt
+                  ? t("recover.codeSentValid", { time: new Date(expiresAt).toLocaleTimeString(locale) })
+                  : t("recover.codeSent")}
               </p>
             )}
 
             <label className={styles.field}>
-              <span>Recovery code</span>
+              <span>{t("recover.codeLabel")}</span>
               <input
                 className={styles.input}
                 value={code}
@@ -125,7 +170,7 @@ export default function RecoverPage() {
               />
             </label>
             <label className={styles.field}>
-              <span>New password</span>
+              <span>{t("access.newPassword")}</span>
               <input
                 className={styles.input}
                 type="password"
@@ -136,7 +181,7 @@ export default function RecoverPage() {
               />
             </label>
             <label className={styles.field}>
-              <span>Confirm password</span>
+              <span>{t("access.confirmPassword")}</span>
               <input
                 className={styles.input}
                 type="password"
@@ -151,7 +196,7 @@ export default function RecoverPage() {
             {error && <p className={styles.error}>{error}</p>}
 
             <button type="button" className={styles.primary} disabled={!canSubmit} onClick={() => void completeRecovery()}>
-              {busy && stage === "code-sent" ? "Setting…" : "Set new password"}
+              {busy && stage === "code-sent" ? t("recover.setting") : t("recover.set")}
             </button>
           </>
         )}

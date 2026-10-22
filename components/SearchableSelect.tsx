@@ -11,6 +11,7 @@ import {
 } from "react";
 import styles from "./SearchableSelect.module.css";
 import { usePopupPlacement } from "@/hooks/usePopupPlacement";
+import { useI18n } from "@/hooks/useI18n";
 
 export interface SearchableSelectOption {
   value: string;
@@ -45,18 +46,25 @@ function normalize(value: string): string {
     .toLocaleLowerCase();
 }
 
+/** Combobox with a filter field; renders translated placeholder and empty-state text, so it must stay under `I18nProvider`. */
 export function SearchableSelect({
   value,
   options,
   onChange,
   disabled = false,
-  placeholder = "Select…",
-  searchPlaceholder = "Search options…",
-  noResultsLabel = "No matching options",
+  placeholder,
+  searchPlaceholder,
+  noResultsLabel,
   ariaLabel,
   className,
   style,
 }: SearchableSelectProps) {
+  const { t } = useI18n();
+  // Defaults are translated at render time: the destructuring defaults above
+  // cannot call a hook.
+  const placeholderText = placeholder ?? t("common.select");
+  const searchPlaceholderText = searchPlaceholder ?? t("common.searchOptions");
+  const noResultsText = noResultsLabel ?? t("common.noMatchingOptions");
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -172,7 +180,7 @@ export function SearchableSelect({
           }
         }}
       >
-        <span className={selected ? styles.value : styles.placeholder}>{selected?.label ?? (value || placeholder)}</span>
+        <span className={selected ? styles.value : styles.placeholder}>{selected?.label ?? (value || placeholderText)}</span>
         <svg className={styles.chevron} viewBox="0 0 12 12" aria-hidden="true">
           <path d="m3 4.5 3 3 3-3" />
         </svg>
@@ -194,8 +202,8 @@ export function SearchableSelect({
               ref={inputRef}
               className={styles.search}
               value={query}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
+              placeholder={searchPlaceholderText}
+              aria-label={searchPlaceholderText}
               role="combobox"
               aria-expanded="true"
               aria-controls={listboxId}
@@ -241,7 +249,7 @@ export function SearchableSelect({
                   </svg>
                 )}
               </button>
-            )) : <div className={styles.empty}>{noResultsLabel}</div>}
+            )) : <div className={styles.empty}>{noResultsText}</div>}
           </div>
         </div>
       )}

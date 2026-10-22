@@ -120,14 +120,14 @@ test("/fork is consumed locally and surfaces server resolution errors", () => {
   assert.match(source, /case "fork": \{/);
   assert.match(forkCaseSource, /const result = await handleFork\(\);/);
   assert.doesNotMatch(forkCaseSource, /messages|entryIds|newestUserEntryId/);
-  assert.match(forkCaseSource, /complete\(\{ handled: true, error: result\.error \?\? "Fork failed" \}\)/);
-  assert.match(forkCaseSource, /complete\(\{ handled: true, message: "Forked a new session" \}\)/);
+  assert.match(forkCaseSource, /complete\(\{ handled: true, error: result\.error \?\? t\("chat\.forkFailed"\) \}\)/);
+  assert.match(forkCaseSource, /complete\(\{ handled: true, message: t\("chat\.forkedSession"\) \}\)/);
   // Every branch returns handled, so /fork never reaches the SDK fallback that
   // forwards the message as an LLM prompt — the case ends in a handled return
   // and yields to the next explicit case, not the default bridge.
   assert.doesNotMatch(forkCaseSource, /execute_slash_command/);
   assert.doesNotMatch(forkCaseSource, /type: "prompt"/);
-  assert.match(source, /case "fork":[\s\S]*?return complete\(\{ handled: true, message: "Forked a new session" \}\);\s*\}\s*case "goal": \{/);
+  assert.match(source, /case "fork":[\s\S]*?return complete\(\{ handled: true, message: t\("chat\.forkedSession"\) \}\);\s*\}\s*case "goal": \{/);
 });
 
 test("fork navigation selects the new session id from the RPC result", () => {
@@ -159,7 +159,7 @@ test("/handoff forwards the focus text verbatim and keeps the UI busy", () => {
   // The long oneshot generation keeps the composer busy through existing
   // agent-running state, with no new state machine.
   assert.match(handoffCaseSource, /if \(agentRunningRef\.current \|\| bashRunningRef\.current\)/);
-  assert.match(handoffCaseSource, /Cannot hand off while the session is busy/);
+  assert.match(handoffCaseSource, /t\("chat\.handoffBusy"\)/);
   assert.match(handoffCaseSource, /agentRunningRef\.current = true/);
   assert.match(handoffCaseSource, /setAgentRunning\(true\)/);
   assert.match(handoffCaseSource, /agentRunningRef\.current = false/);
@@ -167,7 +167,7 @@ test("/handoff forwards the focus text verbatim and keeps the UI busy", () => {
   // Cancellation resolves locally as an error; /handoff never falls through to
   // the SDK command bridge or an LLM prompt.
   assert.match(handoffCaseSource, /if \(!result \|\| result\.cancelled\)/);
-  assert.match(handoffCaseSource, /complete\(\{ handled: true, error: "Handoff cancelled" \}\)/);
+  assert.match(handoffCaseSource, /complete\(\{ handled: true, error: t\("chat\.handoffCancelled"\) \}\)/);
   assert.doesNotMatch(handoffCaseSource, /execute_slash_command/);
   assert.doesNotMatch(handoffCaseSource, /type: "prompt"/);
   const connectIndex = handoffCaseSource.indexOf("await ensureEventsConnected(sessionIdRef.current ?? sid)");
@@ -195,8 +195,8 @@ test("/handoff reloads the same session after an in-place compaction", () => {
   // Every branch returns handled so the command never reaches the SDK
   // fallback — the busy state is torn down in a finally block and the case
   // yields to the default bridge with a return.
-  assert.match(handoffCaseSource, /complete\(\{ handled: true, message: "Context handed off and compacted in place" \}\)/);
-  assert.match(source, /case "handoff":[\s\S]*?return complete\(\{ handled: true, message: "Context handed off and compacted in place" \}\);\s*\}\s*finally \{[\s\S]*?\}\s*\}\s*default: \{/);
+  assert.match(handoffCaseSource, /complete\(\{ handled: true, message: t\("chat\.handoffDone"\) \}\)/);
+  assert.match(source, /case "handoff":[\s\S]*?return complete\(\{ handled: true, message: t\("chat\.handoffDone"\) \}\);\s*\}\s*finally \{[\s\S]*?\}\s*\}\s*default: \{/);
 });
 
 test("rehydrates handoff as busy without misreporting compaction", () => {

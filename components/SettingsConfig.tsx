@@ -8,6 +8,9 @@ import { AccessConfig } from "./AccessConfig";
 import { SearchableSelect } from "./SearchableSelect";
 import { refreshOmpTheme, useTheme } from "@/hooks/useTheme";
 import { refreshDisplaySettings } from "@/hooks/useDisplaySettings";
+import { useI18n } from "@/hooks/useI18n";
+import { translateWithCode } from "@/lib/i18n/rich-text";
+import type { TranslationParams } from "@/lib/i18n/types";
 import { sendAgentCommand, type RuntimeSessionBinding } from "@/lib/agent-client";
 import type {
   McpConfigResponse,
@@ -34,14 +37,30 @@ interface SettingsConfigProps {
   onReloaded?: (runtimeId: string | null) => void;
 }
 
-const CORE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string; requiresCwd?: boolean }> = [
-  { id: "models", label: "Models", icon: "model" },
-  { id: "themes", label: "Themes", icon: "theme" },
-  { id: "skills", label: "Skills", icon: "skill", requiresCwd: true },
-  { id: "plugins", label: "Plugins", icon: "plugin", requiresCwd: true },
-  { id: "mcp", label: "MCP", icon: "mcp" },
-  { id: "access", label: "Access", icon: "access" },
+const CORE_SECTIONS: Array<{ id: SettingsSection; labelKey: string; icon: string; requiresCwd?: boolean }> = [
+  { id: "models", labelKey: "common.models", icon: "model" },
+  { id: "themes", labelKey: "i18n.themes", icon: "theme" },
+  { id: "skills", labelKey: "common.skills", icon: "skill", requiresCwd: true },
+  { id: "plugins", labelKey: "common.plugins", icon: "plugin", requiresCwd: true },
+  { id: "mcp", labelKey: "settings.nav.mcp", icon: "mcp" },
+  { id: "access", labelKey: "access.title", icon: "access" },
 ];
+
+/**
+ * Turn an omp settings group label into the catalog's key suffix
+ * ("Status Line" -> "statusLine", "Rules (TTSR)" -> "rulesTtsr").
+ *
+ * Groups arrive from omp without ids, so the label is the only handle; a label
+ * the catalogs do not know simply misses and falls back to the server text.
+ * @param label group label as omp reports it
+ * @returns camelCase key suffix
+ */
+function groupKey(label: string): string {
+  const words = label.replace(/&/g, " and ").match(/[A-Za-z0-9]+/g) ?? [];
+  return words.map((word, index) => (index === 0
+    ? word.toLowerCase()
+    : word[0].toUpperCase() + word.slice(1).toLowerCase())).join("");
+}
 
 const ICON_PATHS: Record<string, React.ReactNode> = {
   model: <><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 1v3m6-3v3M9 20v3m6-3v3M1 9h3m16 0h3M1 15h3m16 0h3"/></>,
@@ -82,6 +101,7 @@ function conditionVisible(field: SettingsField, values: Map<string, SettingsValu
 }
 
 function TextSetting({ field, busy, onSave }: { field: SettingsField; busy: boolean; onSave: (value: SettingsValue) => void }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(field.type === "secret" ? "" : String(field.value ?? ""));
   useEffect(() => {
     setValue(field.type === "secret" ? "" : String(field.value ?? ""));
@@ -93,7 +113,7 @@ function TextSetting({ field, busy, onSave }: { field: SettingsField; busy: bool
       type={field.type === "secret" ? "password" : "text"}
       value={value}
       disabled={busy}
-      placeholder={field.type === "secret" && field.configured ? "Configured — enter to replace" : undefined}
+      placeholder={field.type === "secret" && field.configured ? t("settings.secretConfiguredPlaceholder") : undefined}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => { if (value !== persisted && (field.type !== "secret" || value.length > 0)) onSave(value); }}
       onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
@@ -200,6 +220,14 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   const [needsReload, setNeedsReload] = useState(false);
   const [reloading, setReloading] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const { t } = useI18n();
+
+  // Server-provided labels win only when the catalogs know the key: `t` returns
+  // the key itself for an unknown one, so the English label stays the fallback.
+  const localize = useCallback((key: string, fallback: string, params?: TranslationParams) => {
+    const translated = t(key, params);
+    return translated === key ? fallback : translated;
+  }, [t]);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -270,27 +298,32 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
     }
   }, [onReloaded, onRuntimeIdentity, runtimeId, sessionId]);
   const selectedTab = settings?.tabs.find((tab) => tab.id === activeTab);
-  const pageTitle = query.trim() ? `Search · ${filteredFields.length}` : selectedTab?.label ?? "Settings";
+  const pageTitle = query.trim()
+    ? t("settings.searchTitle", { count: filteredFields.length })
+    : selectedTab
+      ? localize(`settings.tab.${selectedTab.id}`, selectedTab.label)
+      : t("common.settings");
 
   const renderFields = (fields: SettingsField[], groups: string[]) => {
     const orderedGroups = [...groups, ...fields.map((field) => field.group ?? "General").filter((group) => !groups.includes(group))];
     return [...new Set(orderedGroups)].map((group) => {
       const groupFields = fields.filter((field) => (field.group ?? "General") === group);
       if (!groupFields.length) return null;
-      return <section className={styles.group} key={group}><h3 className={styles.groupTitle}>{group}</h3>{groupFields.map((field) => <SettingRow key={field.path} field={field} busy={saving.has(field.path)} error={saveErrors[field.path]} onSave={(value) => void saveSetting(field, value)} />)}</section>;
+      return <section className={styles.group} key={group}><h3 className={styles.groupTitle}>{localize(`settings.group.${groupKey(group)}`, group)}</h3>{groupFields.map((field) => <SettingRow key={field.path} field={field} busy={saving.has(field.path)} error={saveErrors[field.path]} onSave={(value) => void saveSetting(field, value)} />)}</section>;
     });
   };
 
   const renderThemeSection = () => {
-    if (!settings) return <div className={styles.empty}>{loading ? "Loading themes…" : loadError ?? "Themes unavailable"}</div>;
+    if (!settings) return <div className={styles.empty}>{loading ? t("settings.themesLoading") : loadError ?? t("settings.themesUnavailable")}</div>;
     return (
       <div className={styles.scrollContent}>
-        <header className={styles.contentHeader}><h2 className={styles.contentTitle}>Themes</h2><p className={styles.contentDescription}>The web interface uses the same dark and light theme mappings as omp. Changes are persisted to <code>~/.omp/agent/config.yml</code> and applied here immediately.</p></header>
+        <header className={styles.contentHeader}><h2 className={styles.contentTitle}>{t("i18n.themes")}</h2><p className={styles.contentDescription}>{translateWithCode(t, "settings.themesDescription", {}, { path: "~/.omp/agent/config.yml" })}</p></header>
         <div className={styles.settingsBody}>
           <div className={styles.themeGrid}>{(["dark", "light"] as const).map((mode) => {
             const field = settings.fields.find((item) => item.path === `theme.${mode}`)!;
             const palette = settings.theme.palettes[mode];
-            return <div className={styles.themeCard} key={mode}><ThemePreview palette={palette} /><div className={styles.themeCardBody}><div className={styles.themeCardHeader}><span className={styles.themeSlot}>{mode} mapping</span>{theme === mode && <span className={styles.themeActive}>Active on web</span>}</div><SearchableSelect value={String(field.value)} disabled={saving.has(field.path)} ariaLabel={`${mode} theme`} options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label, description: option.description }))} onChange={(value) => void saveSetting(field, value)} />{theme !== mode && <button type="button" className={styles.closeButton} style={{ marginTop: 8 }} onClick={() => toggleTheme()}>Preview {mode}</button>}</div></div>;
+            const modeLabel = mode === "dark" ? t("settings.themeModeDark") : t("settings.themeModeLight");
+            return <div className={styles.themeCard} key={mode}><ThemePreview palette={palette} /><div className={styles.themeCardBody}><div className={styles.themeCardHeader}><span className={styles.themeSlot}>{t("settings.themeMapping", { mode: modeLabel })}</span>{theme === mode && <span className={styles.themeActive}>{t("settings.themeActiveOnWeb")}</span>}</div><SearchableSelect value={String(field.value)} disabled={saving.has(field.path)} ariaLabel={t("settings.themeAria", { mode: modeLabel })} options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label, description: option.description }))} onChange={(value) => void saveSetting(field, value)} />{theme !== mode && <button type="button" className={styles.closeButton} style={{ marginTop: 8 }} onClick={() => toggleTheme()}>{t("settings.themePreview", { mode: modeLabel })}</button>}</div></div>;
           })}</div>
           {renderFields(settings.fields.filter((field) => field.tab === "appearance" && field.group === "Theme" && !field.path.startsWith("theme.")), ["Theme"])}
         </div>
@@ -299,22 +332,22 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
   };
 
   const renderGenericSettings = () => {
-    if (loading) return <div className={styles.empty}>Loading omp settings…</div>;
-    if (loadError || !settings) return <div className={styles.empty}>{loadError ?? "Settings unavailable"}</div>;
+    if (loading) return <div className={styles.empty}>{t("settings.loading")}</div>;
+    if (loadError || !settings) return <div className={styles.empty}>{loadError ?? t("settings.unavailable")}</div>;
     return (
       <div className={styles.scrollContent}>
         <header className={styles.contentHeader}>
           <h2 className={styles.contentTitle}>{pageTitle}</h2>
           <p className={styles.contentDescription}>
             {query.trim()
-              ? "Matching canonical /settings entries across every category."
-              : "Canonical omp /settings values. Changes are saved immediately to the shared agent configuration."}
+              ? t("settings.searchDescription")
+              : t("settings.description")}
           </p>
           {needsReload && sessionId && (
             <div className={styles.reloadNotice}>
-              <span>Saved. Reload the active session to apply runtime settings.</span>
+              <span>{t("settings.savedNeedsReload")}</span>
               <button type="button" onClick={() => void reloadActiveSession()} disabled={reloading}>
-                {reloading ? "Reloading…" : "Reload session"}
+                {reloading ? t("i18n.reloading") : t("i18n.reloadSession")}
               </button>
             </div>
           )}
@@ -322,7 +355,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
         <div className={styles.settingsBody}>
           {filteredFields.length
             ? renderFields(filteredFields, selectedTab?.groups ?? [])
-            : <div className={styles.empty}>No settings match this search.</div>}
+            : <div className={styles.empty}>{t("settings.noMatches")}</div>}
         </div>
       </div>
     );
@@ -330,17 +363,17 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
 
   return (
     <div className={styles.backdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <div className={styles.window} role="dialog" aria-modal="true" aria-label="Settings">
+      <div className={styles.window} role="dialog" aria-modal="true" aria-label={t("common.settings")}>
         <aside className={styles.sidebar}>
-          <div className={styles.brand}><div className={styles.eyebrow}>omp /settings</div><h1 className={styles.title}>Settings</h1><code className={styles.context} title={cwd ?? "Global configuration"}>{cwd ?? "Global configuration"}</code></div>
-          <div className={styles.searchWrap}><svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input className={styles.search} value={query} placeholder="Search /settings" onChange={(event) => setQuery(event.target.value)} /></div>
+          <div className={styles.brand}><div className={styles.eyebrow}>omp /settings</div><h1 className={styles.title}>{t("common.settings")}</h1><code className={styles.context} title={cwd ?? t("settings.globalConfiguration")}>{cwd ?? t("settings.globalConfiguration")}</code></div>
+          <div className={styles.searchWrap}><svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input className={styles.search} value={query} placeholder={t("settings.searchPlaceholder")} onChange={(event) => setQuery(event.target.value)} /></div>
           <nav className={styles.nav}>
-            <div className={styles.navLabel}>Configuration</div>
-            {CORE_SECTIONS.map((item) => <button key={item.id} type="button" className={styles.navButton} data-active={!query && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? `${item.label} requires a project` : item.label} onClick={() => { setQuery(""); setSection(item.id); }}><SettingsIcon kind={item.icon}/><span>{item.label}</span></button>)}
-            <div className={styles.navLabel}>OMP settings</div>
-            {settings?.tabs.map((tab) => <button key={tab.id} type="button" className={styles.navButton} data-active={!query && activeTab === tab.id} onClick={() => { setQuery(""); setSection(`settings:${tab.id}`); }}><SettingsIcon kind={tab.id}/><span>{tab.label}</span></button>)}
+            <div className={styles.navLabel}>{t("settings.nav.configuration")}</div>
+            {CORE_SECTIONS.map((item) => <button key={item.id} type="button" className={styles.navButton} data-active={!query && section === item.id} disabled={item.requiresCwd && !cwd} title={item.requiresCwd && !cwd ? t("settings.nav.requiresProject", { name: t(item.labelKey) }) : t(item.labelKey)} onClick={() => { setQuery(""); setSection(item.id); }}><SettingsIcon kind={item.icon}/><span>{t(item.labelKey)}</span></button>)}
+            <div className={styles.navLabel}>{t("settings.nav.ompSettings")}</div>
+            {settings?.tabs.map((tab) => <button key={tab.id} type="button" className={styles.navButton} data-active={!query && activeTab === tab.id} onClick={() => { setQuery(""); setSection(`settings:${tab.id}`); }}><SettingsIcon kind={tab.id}/><span>{localize(`settings.tab.${tab.id}`, tab.label)}</span></button>)}
           </nav>
-          <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>Close settings</span><span aria-hidden="true">×</span></button></div>
+          <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>{t("settings.closeSettings")}</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
           {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} runtimeId={runtimeId} onRuntimeIdentity={onRuntimeIdentity} onReloaded={onReloaded} /> : section === "access" ? <AccessConfig /> : renderGenericSettings()}
@@ -352,6 +385,7 @@ export function SettingsConfig({ cwd, sessionId, runtimeId, onRuntimeIdentity, i
 
 function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded }: { cwd?: string | null; sessionId?: string | null; runtimeId?: string;
   onRuntimeIdentity?: RuntimeSessionBinding["onIdentity"]; onReloaded?: (runtimeId: string | null) => void }) {
+  const { t } = useI18n();
   const [data, setData] = useState<McpConfigResponse | null>(null);
   const [scope, setScope] = useState<"user" | "project">("user");
   const [selected, setSelected] = useState(0);
@@ -455,16 +489,16 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
   return (
     <div className={styles.scrollContent}>
       <header className={styles.contentHeader}>
-        <h2 className={styles.contentTitle}>MCP servers</h2>
-        <p className={styles.contentDescription}>All MCP servers discovered by OMP are listed by scope and can be enabled or disabled here. Native OMP entries are editable; configurations owned by Claude, Codex, Gemini, plugins, or other providers remain read-only at their source.</p>
+        <h2 className={styles.contentTitle}>{t("settings.mcp.title")}</h2>
+        <p className={styles.contentDescription}>{t("settings.mcp.description")}</p>
       </header>
       <div className={styles.settingsBody}>
-        {!data ? <div className={styles.empty}>{error ?? "Loading MCP configuration…"}</div> : (
+        {!data ? <div className={styles.empty}>{error ?? t("settings.mcp.loading")}</div> : (
           <div className={styles.mcpLayout}>
             <aside className={styles.mcpList}>
               <div className={styles.scopeTabs}>
-                <button type="button" className={styles.scopeButton} data-active={scope === "user"} onClick={() => { setScope("user"); setSelected(0); }}>User · {data.user.servers.length}</button>
-                <button type="button" className={styles.scopeButton} data-active={scope === "project"} disabled={!data.project} onClick={() => { setScope("project"); setSelected(0); }}>Project · {data.project?.servers.length ?? 0}</button>
+                <button type="button" className={styles.scopeButton} data-active={scope === "user"} onClick={() => { setScope("user"); setSelected(0); }}>{t("settings.mcp.scopeUser", { count: data.user.servers.length })}</button>
+                <button type="button" className={styles.scopeButton} data-active={scope === "project"} disabled={!data.project} onClick={() => { setScope("project"); setSelected(0); }}>{t("settings.mcp.scopeProject", { count: data.project?.servers.length ?? 0 })}</button>
               </div>
               {currentScope?.error ? <div className={styles.error} style={{ padding: 12 }}>{currentScope.error}</div> : (
                 <div className={styles.serverRows}>
@@ -475,7 +509,7 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
                         <button type="button" className={styles.serverSelect} title={item.source?.path} onClick={() => setSelected(index)}>
                           <span className={styles.statusDot} data-off={!item.enabled} />
                           <span className={styles.serverName}>{item.name}</span>
-                          {item.editable === false && <span className={styles.sourceBadge}>{item.source?.provider ?? "external"}</span>}
+                          {item.editable === false && <span className={styles.sourceBadge}>{item.source?.provider ?? t("settings.mcp.externalSource")}</span>}
                         </button>
                         <button
                           type="button"
@@ -483,37 +517,39 @@ function McpSettings({ cwd, sessionId, runtimeId, onRuntimeIdentity, onReloaded 
                           data-on={item.enabled}
                           disabled={toggling === toggleKey}
                           aria-pressed={item.enabled}
-                          aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`}
-                          title={`${item.enabled ? "Disable" : "Enable"} ${item.name}`}
+                          aria-label={item.enabled ? t("settings.mcp.disableServer", { name: item.name }) : t("settings.mcp.enableServer", { name: item.name })}
+                          title={item.enabled ? t("settings.mcp.disableServer", { name: item.name }) : t("settings.mcp.enableServer", { name: item.name })}
                           onClick={() => void toggleServer(item)}
                         >
-                          {toggling === toggleKey ? "…" : item.enabled ? "ON" : "OFF"}
+                          {toggling === toggleKey ? "…" : item.enabled ? t("settings.mcp.toggleOn") : t("settings.mcp.toggleOff")}
                         </button>
                       </div>
                     );
-                  }) : <div className={styles.serverListEmpty}>No servers in this scope.</div>}
+                  }) : <div className={styles.serverListEmpty}>{t("settings.mcp.noServers")}</div>}
                 </div>
               )}
-              <button type="button" className={styles.addServer} disabled={Boolean(currentScope?.error)} onClick={addServer}>+ Add OMP server</button>
+              <button type="button" className={styles.addServer} disabled={Boolean(currentScope?.error)} onClick={addServer}>{t("settings.mcp.addServer")}</button>
             </aside>
             <section className={styles.mcpEditor}>
               {server ? (
                 <>
                   <div className={styles.editorHeader}>
                     <input className={styles.textInput} value={name} readOnly={server.editable === false} onChange={(event) => setName(event.target.value)} placeholder="server-name" />
-                    {server.editable !== false && <button type="button" className={styles.dangerButton} onClick={removeServer}>Delete</button>}
+                    {server.editable !== false && <button type="button" className={styles.dangerButton} onClick={removeServer}>{t("i18n.delete")}</button>}
                   </div>
-                  {server.editable === false && <div className={styles.readOnlyNotice}>Configuration read-only · managed by {server.source?.provider ?? "an external provider"}. Status can be changed from the server list.</div>}
+                  {server.editable === false && <div className={styles.readOnlyNotice}>{server.source?.provider
+                    ? t("settings.mcp.readOnlyNotice", { provider: server.source.provider })
+                    : t("settings.mcp.readOnlyNoticeExternal")}</div>}
                   <textarea className={styles.jsonEditor} value={json} readOnly={server.editable === false} spellCheck={false} onChange={(event) => setJson(event.target.value)} />
                   <div className={styles.editorActions}>
                     <div>
                       {error && <div className={styles.error}>{error}</div>}
                       <div className={styles.saveState}>{server.source?.path ?? currentScope?.path}</div>
                     </div>
-                    {server.editable !== false && <button type="button" className={styles.primaryButton} disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save MCP"}</button>}
+                    {server.editable !== false && <button type="button" className={styles.primaryButton} disabled={saving} onClick={() => void save()}>{saving ? t("i18n.saving") : t("settings.mcp.save")}</button>}
                   </div>
                 </>
-              ) : <div className={styles.empty}>Add or select an MCP server.</div>}
+              ) : <div className={styles.empty}>{t("settings.mcp.empty")}</div>}
             </section>
           </div>
         )}

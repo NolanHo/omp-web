@@ -67,8 +67,8 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
     const names = phase.tools.map((t) => t.name);
     if (names.length === 0) return t("chat.runningTool");
     if (names.length === 1) return t("chat.runningNamedTool", { name: names[0] });
-    if (names.length <= 3) return t("chat.runningTools", { names: names.join(", ") });
-    return t("chat.runningToolsMore", { names: names.slice(0, 2).join(", "), count: names.length - 2 });
+    if (names.length <= 3) return t("chat.runningTools", { names: names.join(t("common.listSeparator")) });
+    return t("chat.runningToolsMore", { names: names.slice(0, 2).join(t("common.listSeparator")), count: names.length - 2 });
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
@@ -441,7 +441,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onAttentionNeed
   if (error) {
     return (
       <div className="flex h-full items-center justify-center text-red-400">
-        {error}
+        {t("chat.loadSessionFailed", { detail: error })}
       </div>
     );
   }

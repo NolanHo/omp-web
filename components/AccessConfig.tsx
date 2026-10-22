@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
+import { translateWithCode } from "@/lib/i18n/rich-text";
+import type { TranslationParams } from "@/lib/i18n/types";
 import type { WebAccessStatus } from "@/lib/api-types";
 import styles from "./SettingsConfig.module.css";
 
@@ -15,22 +18,56 @@ import styles from "./SettingsConfig.module.css";
 
 type AccessAction = "set-password" | "enable" | "disable" | "clear";
 
+type Translate = (key: string, params?: TranslationParams) => string;
+
+/** Error body shared by both web-access routes: `error` is the original text, `code` the stable one. */
+interface AccessErrorBody {
+  error?: string;
+  code?: string;
+  /** Credential file path, sent with the `credentialUnreadable` code. */
+  file?: string;
+  /** Password length limit, sent with the `passwordTooShort`/`passwordTooLong` codes. */
+  count?: number;
+  /** Attempts left, sent with the `invalidCode` code. */
+  remainingAttempts?: number;
+}
+
 const MIN_PASSWORD_LENGTH = 8;
 
-function describeState(status: WebAccessStatus): string {
+function describeState(status: WebAccessStatus, t: Translate): string {
   if (status.managedByEnvironment) {
-    return "Every request needs the password from OMP_WEB_PASSWORD.";
+    return t("access.stateEnv");
   }
   if (status.unreadable) {
-    return "The credential file exists but could not be read, so every request is being refused.";
+    return t("access.stateUnreadable");
   }
-  if (!status.configured) return "No password is set. Anyone who can reach this server can use it.";
+  if (!status.configured) return t("access.stateNone");
   return status.enabled
-    ? "Every request needs the username and password."
-    : "A password is stored but the lock is off.";
+    ? t("access.stateEnabled")
+    : t("access.stateDisabled");
+}
+
+/**
+ * Translate a server error by its stable code, falling back to the English text.
+ * @param body parsed error response
+ * @param status HTTP status, used when the body carries no text
+ * @param t translation function of the active locale
+ * @returns localized message, or the server's original text for unknown codes
+ */
+function describeServerError(body: AccessErrorBody, status: number, t: Translate): string {
+  const fallback = body.error ?? `HTTP ${status}`;
+  if (!body.code) return fallback;
+  const key = `access.error.${body.code}`;
+  const count = body.remainingAttempts ?? body.count;
+  const params: TranslationParams = {};
+  if (body.file) params.file = body.file;
+  if (count !== undefined) params.count = count;
+  const translated = t(key, params);
+  return translated === key ? fallback : translated;
 }
 
 export function AccessConfig() {
+  const { t, locale } = useI18n();
   const [status, setStatus] = useState<WebAccessStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,14 +79,14 @@ export function AccessConfig() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/web-access", { cache: "no-store" });
-      const data = await response.json() as WebAccessStatus & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await response.json() as WebAccessStatus & AccessErrorBody;
+      if (!response.ok || data.error) throw new Error(describeServerError(data, response.status, t));
       setStatus(data);
       setLoadError(null);
     } catch (caught) {
       setLoadError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -63,8 +100,8 @@ export function AccessConfig() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...body }),
       });
-      const data = await response.json() as WebAccessStatus & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await response.json() as WebAccessStatus & AccessErrorBody;
+      if (!response.ok || data.error) throw new Error(describeServerError(data, response.status, t));
       setStatus(data);
       return data;
     } catch (caught) {
@@ -73,40 +110,37 @@ export function AccessConfig() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [t]);
 
   const savePassword = useCallback(async () => {
     if (password !== confirmation) {
-      setError("The two passwords do not match.");
+      setError(t("common.passwordsDoNotMatch"));
       return;
     }
     const updated = await send("set-password", { password });
     if (!updated) return;
     setPassword("");
     setConfirmation("");
-    setNotice(
-      `Password saved and password access turned on. The browser will ask for the username "${updated.username}"`
-      + " and this password on the next request.",
-    );
-  }, [confirmation, password, send]);
+    setNotice(t("access.noticeSaved", { username: updated.username }));
+  }, [confirmation, password, send, t]);
 
   const toggleEnabled = useCallback(async () => {
     if (!status) return;
     const updated = await send(status.enabled ? "disable" : "enable");
     if (!updated) return;
     setNotice(updated.enabled
-      ? `Password access is on. The browser will ask for the username "${updated.username}" and your password on the next request.`
-      : "Password access is off. The stored password is kept and can be switched back on here.");
-  }, [send, status]);
+      ? t("access.noticeEnabled", { username: updated.username })
+      : t("access.noticeDisabled"));
+  }, [send, status, t]);
 
   const clearPassword = useCallback(async () => {
     const updated = await send("clear");
     if (!updated) return;
-    setNotice("The stored password was removed and password access is off.");
-  }, [send]);
+    setNotice(t("access.noticeCleared"));
+  }, [send, t]);
 
   if (!status) {
-    return <div className={styles.empty}>{loadError ?? "Loading password access…"}</div>;
+    return <div className={styles.empty}>{loadError ?? t("access.loading")}</div>;
   }
 
   const readOnly = status.managedByEnvironment;
@@ -115,16 +149,13 @@ export function AccessConfig() {
   return (
     <div className={styles.scrollContent}>
       <header className={styles.contentHeader}>
-        <h2 className={styles.contentTitle}>Access</h2>
+        <h2 className={styles.contentTitle}>{t("access.title")}</h2>
         <p className={styles.contentDescription}>
-          A password locks the web interface and every API endpoint behind HTTP Basic Auth, with the fixed
-          username <code>{status.username}</code>. It is stored as a scrypt hash in <code>{status.file}</code> —
-          omp-web never keeps the password itself, which is why forgetting it means recovering rather than reading it back.
+          {translateWithCode(t, "access.description", {}, { username: status.username, file: status.file })}
         </p>
         {readOnly && (
           <div className={styles.readOnlyNotice}>
-            Read-only · <code>OMP_WEB_PASSWORD</code> is set and overrides the stored credential. Unset it and restart
-            omp-web to manage the password here.
+            {translateWithCode(t, "access.readOnlyNotice", {}, { variable: "OMP_WEB_PASSWORD" })}
           </div>
         )}
         {notice && (
@@ -134,13 +165,13 @@ export function AccessConfig() {
 
       <div className={styles.settingsBody}>
         <section className={styles.group}>
-          <h3 className={styles.groupTitle}>Password access</h3>
+          <h3 className={styles.groupTitle}>{t("access.passwordAccess")}</h3>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>Require a password</div>
-              <div className={styles.settingDescription}>{describeState(status)}</div>
+              <div className={styles.settingLabel}>{t("access.requirePassword")}</div>
+              <div className={styles.settingDescription}>{describeState(status, t)}</div>
               {!status.configured && !readOnly && (
-                <div className={styles.settingDescription}>Set a password below before turning this on.</div>
+                <div className={styles.settingDescription}>{t("access.setFirst")}</div>
               )}
               {error && <div className={styles.error}>{error}</div>}
             </div>
@@ -150,7 +181,7 @@ export function AccessConfig() {
                 className={styles.switch}
                 data-on={status.enabled}
                 aria-pressed={status.enabled}
-                aria-label="Require a password"
+                aria-label={t("access.requirePassword")}
                 disabled={busy || readOnly || (!status.enabled && !status.stored)}
                 onClick={() => void toggleEnabled()}
               />
@@ -159,12 +190,12 @@ export function AccessConfig() {
         </section>
 
         <section className={styles.group}>
-          <h3 className={styles.groupTitle}>{status.stored ? "Replace the password" : "Set a password"}</h3>
+          <h3 className={styles.groupTitle}>{status.stored ? t("access.replacePassword") : t("access.setPassword")}</h3>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>New password</div>
+              <div className={styles.settingLabel}>{t("access.newPassword")}</div>
               <div className={styles.settingDescription}>
-                At least {MIN_PASSWORD_LENGTH} characters. Saving a password also turns password access on.
+                {t("access.newPasswordHint", { count: MIN_PASSWORD_LENGTH })}
               </div>
             </div>
             <div className={styles.settingControl}>
@@ -180,8 +211,8 @@ export function AccessConfig() {
           </div>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>Confirm password</div>
-              <div className={styles.settingDescription}>Both entries have to match before it can be saved.</div>
+              <div className={styles.settingLabel}>{t("access.confirmPassword")}</div>
+              <div className={styles.settingDescription}>{t("access.confirmHint")}</div>
             </div>
             <div className={styles.settingControl}>
               <input
@@ -199,44 +230,41 @@ export function AccessConfig() {
             <div>
               <div className={styles.saveState}>
                 {status.stored && status.updatedAt
-                  ? `Last changed ${new Date(status.updatedAt).toLocaleString()}`
-                  : "No password stored yet"}
+                  ? t("access.lastChanged", { date: new Date(status.updatedAt).toLocaleString(locale) })
+                  : t("access.notStored")}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {status.stored && !readOnly && (
                 <button type="button" className={styles.dangerButton} disabled={busy} onClick={() => void clearPassword()}>
-                  Remove password
+                  {t("access.removePassword")}
                 </button>
               )}
               <button type="button" className={styles.primaryButton} disabled={!canSave} onClick={() => void savePassword()}>
-                {busy ? "Saving…" : "Save password"}
+                {busy ? t("i18n.saving") : t("access.savePassword")}
               </button>
             </div>
           </div>
         </section>
 
         <section className={styles.group}>
-          <h3 className={styles.groupTitle}>If you forget it</h3>
+          <h3 className={styles.groupTitle}>{t("access.forgotTitle")}</h3>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>Recovery</div>
+              <div className={styles.settingLabel}>{t("access.recovery")}</div>
               <div className={styles.settingDescription}>
-                Run <code>omp-web --reset-password</code> on this machine to set a new one, or open <code>/recover</code> in
-                the browser: omp-web prints a one-time code on its own console, and entering that code sets a new password.
-                Both paths require access to the machine running the server — nothing can hand the password back.
+                {translateWithCode(t, "access.recoveryDescription", {}, { command: "omp-web --reset-password", path: "/recover" })}
               </div>
             </div>
             <div className={styles.settingControl}>
-              <a className={styles.linkButton} href="/recover" target="_blank" rel="noreferrer">Open /recover</a>
+              <a className={styles.linkButton} href="/recover" target="_blank" rel="noreferrer">{t("access.openRecover")}</a>
             </div>
           </div>
           <div className={styles.settingRow}>
             <div>
-              <div className={styles.settingLabel}>Basic Auth is not encryption</div>
+              <div className={styles.settingLabel}>{t("access.basicAuthTitle")}</div>
               <div className={styles.settingDescription}>
-                The password crosses the network in a reversible encoding. Over plain HTTP on an untrusted network it can be
-                read in transit, so put omp-web behind HTTPS or a trusted VPN before exposing it beyond loopback.
+                {t("access.basicAuthDescription")}
               </div>
             </div>
             <div className={styles.settingControl} />

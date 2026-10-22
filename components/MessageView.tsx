@@ -6,6 +6,7 @@ import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism"
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
+import type { Locale } from "@/lib/i18n/types";
 import { useTheme } from "@/hooks/useTheme";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isHiddenAssistantBlock } from "@/lib/message-display";
@@ -202,16 +203,18 @@ interface Props {
   writtenFiles?: WrittenFile[];
 }
 
-function formatTime(ts?: number): string | null {
+function formatTime(ts: number | undefined, locale: Locale): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   const now = new Date();
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Format with the UI language, not the host locale: switching the interface
+  // to Chinese must also switch clock and date formats.
+  const time = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   if (isToday) return time;
-  const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  const date = d.toLocaleDateString(locale, { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
 }
 
@@ -279,7 +282,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   prevAssistantEntryId?: string;
   onEditContent?: (message: UserMessage) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -296,7 +299,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, locale);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
@@ -496,9 +499,9 @@ function AssistantMessageView({
   entryId?: string;
   writtenFiles?: WrittenFile[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { hideThinkingBlock } = useDisplaySettings();
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const time = showTimestamp ? formatTime(message.timestamp, locale) : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isHiddenAssistantBlock(block, { isStreaming, hideThinking: hideThinkingBlock })), [message.content, isStreaming, hideThinkingBlock]);
@@ -660,7 +663,7 @@ function AssistantMessageView({
                     const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
                     return (
                       <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
-                        {tps.toFixed(1)} t/s
+                        {t("chat.tokensPerSecond", { value: tps.toFixed(1) })}
                       </span>
                     );
                   })()}
@@ -694,7 +697,7 @@ function AssistantMessageView({
             overflowWrap: "anywhere",
           }}
         >
-          Error: {providerError}
+          {t("chat.errorWithMessage", { message: providerError })}
         </div>
       )}
 
@@ -707,7 +710,7 @@ function AssistantMessageView({
       }}>
         {message.usage && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
+            {formatUsage(message.usage, t, locale)}
           </div>
         )}
         {textContent && !isStreaming && (
@@ -827,7 +830,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         {loading ? (
           <span className="markdown-thinking-status">{t("i18n.loadingThinking")}</span>
         ) : error ? (
-          <span className="markdown-thinking-error">{error}</span>
+          <span className="markdown-thinking-error" title={error}>{t("i18n.thinkingUnavailable")}</span>
         ) : hasText ? (
           <MarkdownBody className="markdown-thinking-body">{text}</MarkdownBody>
         ) : (
@@ -835,7 +838,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         )}
       </div>
       {duration !== undefined && hasText && (
-        <span className="markdown-thinking-duration">{duration}s</span>
+        <span className="markdown-thinking-duration">{t("chat.durationSeconds", { seconds: duration })}</span>
       )}
     </div>
   );
@@ -843,6 +846,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 
 
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+  const { t } = useI18n();
   const normalizedToolName = block.toolName.toLowerCase();
   const isEditTool = normalizedToolName === "edit" ||
     normalizedToolName.startsWith("edit_") ||
@@ -865,6 +869,10 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         },
         { added: 0, removed: 0 },
       )
+    : null;
+
+  const diffStatsLabel = diffStats
+    ? t("chat.diffLineStats", { added: diffStats.added, removed: diffStats.removed })
     : null;
 
   const resultText = result
@@ -891,7 +899,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   }
 
   const hasStructuredPreview = Boolean(todoPhases || resultDiff);
-  const headerPreview = getStructuredToolPreview(block, todoPhases);
+  const headerPreview = getStructuredToolPreview(block, todoPhases, t);
 
 
   return (
@@ -932,10 +940,10 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {headerPreview}
         </span>
-        {diffStats && (
+        {diffStats && diffStatsLabel && (
           <span
-            title={`${diffStats.added} lines added, ${diffStats.removed} lines removed`}
-            aria-label={`${diffStats.added} lines added, ${diffStats.removed} lines removed`}
+            title={diffStatsLabel}
+            aria-label={diffStatsLabel}
             style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11, fontVariantNumeric: "tabular-nums" }}
           >
             <span style={{ color: "var(--success)" }}>+{diffStats.added}</span>
@@ -943,7 +951,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           </span>
         )}
         {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{t("chat.durationSeconds", { seconds: duration })}</span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -1155,6 +1163,15 @@ function ToolIconGlyph({ kind }: { kind: ToolIconKind }) {
 
 type TodoPreviewStatus = "pending" | "in_progress" | "completed" | "abandoned" | "blocked";
 
+/** Catalog key per todo status; the raw enum stays in tool data. */
+const TODO_STATUS_KEYS: Record<TodoPreviewStatus, string> = {
+  pending: "chat.todoStatusPending",
+  in_progress: "chat.todoStatusInProgress",
+  completed: "chat.todoStatusCompleted",
+  abandoned: "chat.todoStatusAbandoned",
+  blocked: "chat.todoStatusBlocked",
+};
+
 interface TodoPreviewTask {
   content: string;
   status: TodoPreviewStatus;
@@ -1197,6 +1214,7 @@ function isTodoPreviewStatus(value: unknown): value is TodoPreviewStatus {
 }
 
 function TodoChecklistPreview({ phases }: { phases: TodoPreviewPhase[] }) {
+  const { t } = useI18n();
   const totalTasks = phases.reduce((sum, phase) => sum + phase.tasks.length, 0);
   const completedTasks = phases.reduce(
     (sum, phase) => sum + phase.tasks.filter((task) => task.status === "completed").length,
@@ -1204,14 +1222,14 @@ function TodoChecklistPreview({ phases }: { phases: TodoPreviewPhase[] }) {
   );
 
   return (
-    <div className="todo-checklist-preview" role="list" aria-label={`Todo ${totalTasks} tasks`}>
+    <div className="todo-checklist-preview" role="list" aria-label={t("chat.todoAriaLabel", { count: totalTasks })}>
       <div className="todo-checklist-header">
         <svg className="todo-checklist-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M5.5 3.25h7M5.5 7h7M5.5 10.75h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           <path d="m1.5 3.1 1 1 1.7-1.9M1.5 6.85l1 1 1.7-1.9M1.5 10.6l1 1 1.7-1.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="todo-checklist-title">Todo</span>
-        <span className="todo-checklist-count">{totalTasks} {totalTasks === 1 ? "task" : "tasks"}</span>
+        <span className="todo-checklist-title">{t("chat.todoTitle")}</span>
+        <span className="todo-checklist-count">{totalTasks} {totalTasks === 1 ? t("chat.todoTask") : t("chat.todoTasks")}</span>
         {completedTasks > 0 && completedTasks < totalTasks && (
           <span className="todo-checklist-progress">{completedTasks}/{totalTasks}</span>
         )}
@@ -1231,6 +1249,7 @@ function TodoChecklistPreview({ phases }: { phases: TodoPreviewPhase[] }) {
 }
 
 function TodoChecklistRow({ task }: { task: TodoPreviewTask }) {
+  const { t } = useI18n();
   const completed = task.status === "completed";
   const abandoned = task.status === "abandoned";
   const active = task.status === "in_progress";
@@ -1249,7 +1268,7 @@ function TodoChecklistRow({ task }: { task: TodoPreviewTask }) {
   return (
     <div
       role="listitem"
-      aria-label={`${task.status}: ${task.content}`}
+      aria-label={t("chat.todoTaskAria", { status: t(TODO_STATUS_KEYS[task.status]), content: task.content })}
       className={`todo-checklist-row ${statusClass}`}
     >
       <span aria-hidden="true" className="todo-checklist-marker">
@@ -1282,7 +1301,7 @@ function ConsoleOutputPreview({
   const { t } = useI18n();
   const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
   const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
-  const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
+  const statusLabel = pending ? t("chat.runningCommand") : isError ? t("i18n.failed") : "";
 
   return (
     <div className={`shell-output-preview${isError ? " is-error" : ""}`}>
@@ -1314,12 +1333,12 @@ function ConsoleOutputPreview({
         >
           {command || " "}
         </SyntaxHighlighter>
-        {local && <span className="shell-local-label">local</span>}
+        {local && <span className="shell-local-label">{t("chat.shellLocal")}</span>}
       </div>
 
       <div className="shell-output-panel">
         <div className="shell-output-divider">
-          <span className="shell-output-label">Output</span>
+          <span className="shell-output-label">{t("chat.shellOutput")}</span>
           {statusLabel && <span className={`shell-output-status${isError ? " is-error" : pending ? " is-pending" : ""}`}>{statusLabel}</span>}
         </div>
         <div className="shell-output-body" aria-live={pending ? "polite" : undefined}>
@@ -1353,18 +1372,18 @@ function ConsoleOutputPreview({
       </div>
 
       {duration !== undefined && (
-        <div className="shell-output-footer">{duration}s</div>
+        <div className="shell-output-footer">{t("chat.durationSeconds", { seconds: duration })}</div>
       )}
     </div>
   );
 }
 
 
-function getStructuredToolPreview(block: ToolCallContent, phases: TodoPreviewPhase[] | null): string {
+function getStructuredToolPreview(block: ToolCallContent, phases: TodoPreviewPhase[] | null, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (phases) {
     const tasks = phases.flatMap((phase) => phase.tasks);
     const completed = tasks.filter((task) => task.status === "completed" || task.status === "abandoned").length;
-    return `${completed}/${tasks.length} tasks`;
+    return t("chat.todoProgress", { completed, total: tasks.length });
   }
   return getToolPreview(block);
 }
@@ -1641,10 +1660,10 @@ function PairedResult({ text, isEmpty, isError }: {
 }
 
 function CompactionMessageView({ message }: { message: CustomMessage }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, locale);
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1668,7 +1687,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           }}
         >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            compaction
+            {t("chat.compactionLabel")}
           </span>
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
@@ -1698,12 +1717,12 @@ function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: strin
   if (total === 0) return null;
 
   const parts = [];
-  if (readFiles.length > 0) parts.push(`${readFiles.length} read`);
-  if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} modified`);
+  if (readFiles.length > 0) parts.push(t("chat.compactionReadCount", { count: readFiles.length }));
+  if (modifiedFiles.length > 0) parts.push(t("chat.compactionModifiedCount", { count: modifiedFiles.length }));
 
   return (
     <details className="compaction-file-details">
-       <summary>{t("i18n.fileContext", { details: parts.join(", ") })}</summary>
+       <summary>{t("i18n.fileContext", { details: parts.join(t("common.listSeparator")) })}</summary>
        {modifiedFiles.length > 0 && <CompactionFileList title={t("i18n.modifiedFiles")} files={modifiedFiles} />}
        {readFiles.length > 0 && <CompactionFileList title={t("i18n.readFiles")} files={readFiles} />}
     </details>
@@ -1724,7 +1743,7 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
 }
 
 function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1733,8 +1752,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const images = getMessageImages(message.content);
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
-  const title = formatCustomType(message.customType);
-  const time = formatTime(message.timestamp);
+  const title = formatCustomType(message.customType, t);
+  const time = formatTime(message.timestamp, locale);
 
   const copyContent = () => {
     copyText(text || detailsText).then(() => {
@@ -1809,7 +1828,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               textAlign: "left",
             }}
           >
-             {text ? previewText(text) : t("i18n.showExtensionMessage")}
+             {previewText(text) || t("i18n.showExtensionMessage")}
           </button>
         )}
 
@@ -1917,14 +1936,14 @@ function safeJson(value: unknown): string {
   }
 }
 
-function formatCustomType(type: string): string {
-  return type || "extension";
+function formatCustomType(type: string, t: (key: string) => string): string {
+  return type || t("chat.customTypeFallback");
 }
 
 function previewText(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "Show extension message";
-  return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
+  if (!normalized) return "";
+  return normalized.length > 140 ? `${normalized.slice(0, 140)}…` : normalized;
 }
 
 
@@ -1973,17 +1992,18 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, t: (key: string, params?: Record<string, string | number>) => string, locale: Locale): string {
   const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  if (usage.input) parts.push(t("chat.usageInput", { count: usage.input.toLocaleString(locale) }));
+  if (usage.output) parts.push(t("chat.usageOutput", { count: usage.output.toLocaleString(locale) }));
+  if (usage.cacheRead) parts.push(t("chat.usageCacheRead", { count: usage.cacheRead.toLocaleString(locale) }));
+  if (usage.cacheWrite) parts.push(t("chat.usageCacheWrite", { count: usage.cacheWrite.toLocaleString(locale) }));
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+  const { t } = useI18n();
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -2006,7 +2026,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
       if (d.success) {
         setFullOutput(d.data?.output ?? "");
       } else {
-        setFullError(d.error ?? "failed");
+        setFullError(d.error ?? t("i18n.failed"));
       }
     } catch (e) {
       setFullError(String(e));
@@ -2046,14 +2066,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "loading…" : "view full output"}
+              {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            download full output
+            {t("chat.downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>

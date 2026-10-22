@@ -47,10 +47,10 @@ interface FileData {
 
 type DisplayMode = "source" | "preview" | "diff";
 
-const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
-  source: "Source",
-  preview: "Preview",
-  diff: "Diff",
+const DISPLAY_MODE_LABEL_KEYS: Record<DisplayMode, string> = {
+  source: "i18n.source",
+  preview: "i18n.preview",
+  diff: "i18n.diff",
 };
 
 const FILE_CODE_STYLE: CSSProperties = {
@@ -345,7 +345,7 @@ function DiffView({ patch }: { patch: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              ... {seg.count} unchanged lines ...
+              {t("files.unchangedLines", { count: seg.count })}
             </div>
           );
           return result;
@@ -479,7 +479,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "image"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext || t("files.typeImage")}</span>
         {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
         {formatSizeStr && <span>{formatSizeStr}</span>}
         <span
@@ -496,7 +496,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "live" : "static"}
+          {watching ? t("files.liveIndicator") : t("files.staticIndicator")}
         </span>
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
@@ -526,7 +526,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
               const img = e.currentTarget;
               setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
             }}
-            onError={() => setError("Failed to load image")}
+            onError={() => setError(t("files.imageLoadFailed"))}
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
@@ -613,7 +613,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "audio"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext || t("files.typeAudio")}</span>
         {duration != null && <span>{formatDuration(duration)}</span>}
         {size != null && <span>{formatSize(size)}</span>}
         <span
@@ -630,7 +630,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "live" : "static"}
+          {watching ? t("files.liveIndicator") : t("files.staticIndicator")}
         </span>
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
@@ -656,7 +656,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
             preload="metadata"
             src={src}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            onError={() => setError("Failed to load audio")}
+            onError={() => setError(t("files.audioLoadFailed"))}
             style={{ width: "100%" }}
           />
         </div>
@@ -697,7 +697,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+            setError(t("files.docxTooLarge"));
           }
         }
       })
@@ -713,7 +713,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+            setError(t("files.docxTooLarge"));
             return;
           }
         }
@@ -728,7 +728,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
       es.close();
       esRef.current = null;
     };
-  }, [filePath, isPdf, sourceSessionId]);
+  }, [filePath, isPdf, sourceSessionId, t]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -748,7 +748,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? t("files.docxPreviewTag") : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
@@ -765,7 +765,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "live" : "static"}
+          {watching ? t("files.liveIndicator") : t("files.staticIndicator")}
         </span>
       </div>
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
@@ -1033,7 +1033,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
       ];
   const metadata = isDeletedDiff
     ? t("files.deleted")
-    : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
+    : t("files.metadata", { language, count: lines.length, size: formatSize(data!.size) });
 
   return (
     <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1086,7 +1086,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
                       color: active ? "var(--text)" : "var(--text-muted)",
                     }}
                   >
-                    {DISPLAY_MODE_LABELS[mode]}
+                    {t(DISPLAY_MODE_LABEL_KEYS[mode])}
                   </button>
                 );
               })}

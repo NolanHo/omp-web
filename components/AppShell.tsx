@@ -980,7 +980,10 @@ export function AppShell() {
           aria-controls="session-sidebar"
           className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="sidebar"
-          title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
+          title={translate("layout.resizeHandleTitle", {
+            label: translate("layout.resizeSidebar"),
+            hint: translate("layout.resizeHint"),
+          })}
         />
       )}
 
@@ -1321,15 +1324,19 @@ export function AppShell() {
 
             const tooltipParts: string[] = [];
              if (tokens) {
-               tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
-               tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
-               tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
-               tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-              if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
+               tooltipParts.push(translate("session.tooltipIn", { count: tokens.input.toLocaleString(locale) }));
+               tooltipParts.push(translate("session.tooltipOut", { count: tokens.output.toLocaleString(locale) }));
+               tooltipParts.push(translate("session.tooltipCacheRead", { count: tokens.cacheRead.toLocaleString(locale) }));
+               tooltipParts.push(translate("session.tooltipCacheWrite", { count: tokens.cacheWrite.toLocaleString(locale) }));
+              if (c > 0) tooltipParts.push(translate("session.tooltipCost", { amount: `$${c.toFixed(4)}` }));
             }
             if (contextUsage?.contextWindow) {
               const pct = contextUsage.percent;
-              tooltipParts.push(`context: ${contextUsage.tokens !== null ? contextUsage.tokens.toLocaleString(locale) : "?"} / ${contextUsage.contextWindow.toLocaleString(locale)} tokens (${pct !== null ? pct.toFixed(1) + "%" : "unknown"})`);
+              tooltipParts.push(translate("session.tooltipContext", {
+                used: contextUsage.tokens !== null ? contextUsage.tokens.toLocaleString(locale) : "?",
+                limit: contextUsage.contextWindow.toLocaleString(locale),
+                percent: pct !== null ? `${pct.toFixed(1)}%` : translate("i18n.unknown"),
+              }));
             }
             const tooltip = tooltipParts.join("  |  ");
 
@@ -1753,7 +1760,10 @@ export function AppShell() {
           aria-controls="file-panel"
           className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="right-panel"
-          title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
+          title={translate("layout.resizeHandleTitle", {
+            label: translate("layout.resizeFilePanel"),
+            hint: translate("layout.resizeHint"),
+          })}
         />
       )}
 

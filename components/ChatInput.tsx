@@ -29,6 +29,10 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePopupPlacement } from "@/hooks/usePopupPlacement";
 import { computePopupPlacement, preferredPopupHeight, POPUP_GAP_PX, type PopupSide } from "@/lib/popup-placement";
 import { useI18n } from "@/hooks/useI18n";
+import { translateRoleName } from "@/lib/i18n/role-names";
+import { translateMessage } from "@/lib/i18n/format";
+import { enLocale } from "@/lib/i18n/messages/en";
+import type { TranslationParams } from "@/lib/i18n/types";
 import { PRESET_DEFAULT, PRESET_FULL } from "@/lib/tool-presets";
 
 export interface AttachedImage {
@@ -286,6 +290,7 @@ function revokeImagePreview(image: AttachedImage): void {
 }
 
 function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+  const { t } = useI18n();
   return (
     <div
       title={text}
@@ -310,7 +315,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
           color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
         }}
       >
-        {kind}
+        {kind === "steer" ? t("chat.steer") : t("chat.followUp")}
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
     </div>
@@ -362,18 +367,27 @@ function ModelNoticeBanner({ tone, title, body }: { tone: "error" | "warning"; t
   );
 }
 
-export function ModelErrorBanner({ error }: { error?: string | null }) {
+type Translator = (key: string, params?: TranslationParams) => string;
+
+/**
+ * Banners stay usable outside I18nProvider (they are exported and rendered
+ * standalone in tests), so the translator is passed in and English is the
+ * fallback — the same default the provider itself starts from.
+ */
+const englishTranslator: Translator = (key, params) => translateMessage("en", key, { en: enLocale.messages }, params);
+
+export function ModelErrorBanner({ error, t = englishTranslator }: { error?: string | null; t?: Translator }) {
   if (!error) return null;
-  return <ModelNoticeBanner tone="error" title="Model error" body={error} />;
+  return <ModelNoticeBanner tone="error" title={t("chat.modelError")} body={error} />;
 }
 
 /** Surfaces `enabledModels` patterns that matched nothing, so a typo is visible (#307). */
-export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
+export function ModelScopeWarningBanner({ warnings, t = englishTranslator }: { warnings?: string[]; t?: Translator }) {
   if (!warnings || warnings.length === 0) return null;
   return (
     <ModelNoticeBanner
       tone="warning"
-      title={warnings.length > 1 ? "Model scope warnings" : "Model scope warning"}
+      title={warnings.length > 1 ? t("chat.modelScopeWarnings") : t("chat.modelScopeWarning")}
       body={warnings.join("\n")}
     />
   );
@@ -1294,7 +1308,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
   const compactResultText = compactResult
-    ? `${compactResult.reason && compactResult.reason !== "manual" ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} ` : t("chat.compacted")} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${t("chat.tokensSaved", { saved: formatTokenCount(compactSavedTokens) })})`
+    ? `${compactResult.reason && compactResult.reason !== "manual" ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} ` : t("chat.compacted")} ${t("chat.compactResult", {
+        before: formatTokenCount(compactResult.tokensBefore),
+        after: formatTokenCount(compactResult.estimatedTokensAfter),
+        saved: t("chat.tokensSaved", { saved: formatTokenCount(compactSavedTokens) }),
+      })}`
     : null;
   const thinkingDisplayLabel = (() => {
     const lvl = thinkingLevel ?? "auto";
@@ -1362,8 +1380,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }}
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
-        <ModelErrorBanner error={modelError} />
-        <ModelScopeWarningBanner warnings={modelScopeWarnings} />
+        <ModelErrorBanner error={modelError} t={t} />
+        <ModelScopeWarningBanner warnings={modelScopeWarnings} t={t} />
         {/* Queued steering / follow-up messages (delivered by omp on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
@@ -1493,6 +1511,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 />
                 <button
                   onClick={() => removeImage(i)}
+                  title={t("chat.removeImage")}
+                  aria-label={t("chat.removeImage")}
                   style={{
                     position: "absolute", top: -4, right: -4,
                     width: 16, height: 16, borderRadius: "50%",
@@ -1530,7 +1550,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               }}
             >
               <div
-                title="Input history"
+                title={t("chat.inputHistory")}
                 style={{
                   height: 30,
                   padding: "0 10px",
@@ -1912,7 +1932,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Interrupt the current run and inject this message now"}
+                  title={attachedImages.length ? t("chat.queueImagesBlocked") : t("chat.steerTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -1935,7 +1955,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Queue this message after the agent finishes"}
+                  title={attachedImages.length ? t("chat.queueImagesBlocked") : t("chat.followUpTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -2083,7 +2103,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
                       e.currentTarget.style.color = "var(--text-muted)";
                     }}
-                    title={modelSwitching ? "Switching model" : modelOptions.length > 0 ? "Change model" : "No available models"}
+                    title={modelSwitching ? t("chat.modelSwitching") : modelOptions.length > 0 ? t("chat.changeModel") : t("chat.noAvailableModels")}
                   >
                     {modelSwitching ? (
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true">
@@ -2100,7 +2120,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       </svg>
                     )}
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
+                      {currentName ?? (modelOptions.length > 0 ? t("chat.selectModel") : t("chat.noModels"))}
                     </span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
@@ -2220,7 +2240,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                   }}>
                                     {role.tag ?? role.role.toUpperCase()}
                                   </span>
-                                  <span style={{ fontWeight: isActive ? 600 : 500 }}>{role.name}</span>
+                                  <span style={{ fontWeight: isActive ? 600 : 500 }}>{translateRoleName(role.role, role.name, t)}</span>
                                   <span style={{
                                     marginLeft: "auto",
                                     paddingLeft: 12,
@@ -2247,7 +2267,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         )}
                         {modelsByProvider.length === 0 ? (
                           <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                            {modelFilter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
                           </div>
                         ) : modelsByProvider.map((group, gi) => (
                           <div key={group.provider}>
@@ -2478,7 +2498,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                   title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
+                   title={t("chat.changeToolPresetTitle", { preset: toolPresetLabel })}
                    aria-label={t("chat.changeToolPreset")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -2523,7 +2543,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         ? t("chat.noTools")
                         : lvl === "default"
                           ? t("chat.builtInTools", { tools: DEFAULT_TOOL_LABEL })
-                          : t("chat.allBuiltInTools", {
+                          : t("chat.builtInTools", {
                             tools: `${DEFAULT_TOOL_LABEL} + ${FULL_TOOL_ADDITIONS}`,
                           });
                       return (
@@ -2777,7 +2797,7 @@ function ContextUsageMeter({
     <div
       role="status"
       aria-live="polite"
-      aria-label={status ? `${title}. ${status}` : title}
+      aria-label={status ? t("chat.contextUsageAria", { title, status }) : title}
       title={title}
       data-context-level={level}
       data-context-available={usage ? "true" : "false"}

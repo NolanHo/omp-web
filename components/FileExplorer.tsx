@@ -74,11 +74,11 @@ interface PendingConflict {
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+async function fetchEntries(dirPath: string, t: Translate): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
   const res = await fetch(`/api/files/${encoded}?type=list`);
   if (!res.ok) {
-    let message = `Failed to load files (HTTP ${res.status})`;
+    let message = t("files.loadFailed", { status: res.status });
     try {
       const data = await res.json() as { error?: string };
       if (data.error) message = data.error;
@@ -151,6 +151,7 @@ function uploadFiles(
   files: File[],
   strategy: UploadConflictStrategy,
   onProgress: (progress: number) => void,
+  t: Translate,
 ): Promise<{ status: number; data: UploadResponse }> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
@@ -166,8 +167,8 @@ function uploadFiles(
         onProgress(Math.round((event.loaded / event.total) * 100));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error while uploading files"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.onerror = () => reject(new Error(t("files.uploadNetworkError")));
+    xhr.onabort = () => reject(new Error(t("files.uploadCancelled")));
     xhr.onload = () => {
       let data: UploadResponse = {};
       try {
@@ -252,7 +253,7 @@ function TreeNode({
     if (loaded && !force) return;
     setLoading(true);
     try {
-      const entries = await fetchEntries(node.fullPath);
+      const entries = await fetchEntries(node.fullPath, t);
       setChildren(entries);
       setLoaded(true);
     } catch {
@@ -260,7 +261,7 @@ function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath]);
+  }, [loaded, node.fullPath, t]);
 
   // Re-fetch children when the tree refreshes and the directory is open.
   useEffect(() => {
@@ -448,7 +449,7 @@ function TreeNode({
           ))}
           {children.length === 0 && loaded && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
-              empty
+              {t("files.emptyDirectory")}
             </div>
           )}
         </div>
@@ -593,7 +594,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress);
+      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress, t);
       if (status === 409 && data.conflicts?.length) {
         setPendingConflict({
           files,
@@ -603,7 +604,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         return;
       }
       if (status < 200 || status >= 300) {
-        throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
+        throw new Error(data.error ?? t("files.uploadFailed", { status }));
       }
       setUploadProgress(100);
       applyUploadResult(data);
@@ -612,7 +613,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     } finally {
       setUploadPhase("idle");
     }
-  }, [applyUploadResult, cwd]);
+  }, [applyUploadResult, cwd, t]);
 
   const prepareUpload = useCallback(async (files: File[]) => {
     if (files.length === 0 || uploadBusy) return;
@@ -633,7 +634,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         },
       );
       const data = await res.json().catch(() => ({})) as UploadResponse;
-      if (!res.ok) throw new Error(data.error ?? `Upload check failed (HTTP ${res.status})`);
+      if (!res.ok) throw new Error(data.error ?? t("files.uploadCheckFailed", { status: res.status }));
 
       if (data.conflicts?.length) {
         setPendingConflict({
@@ -650,7 +651,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     } finally {
       setUploadPhase("idle");
     }
-  }, [cwd, performUpload, uploadBusy]);
+  }, [cwd, performUpload, uploadBusy, t]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -686,12 +687,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
-    fetchEntries(cwd)
+    fetchEntries(cwd, t)
       .then((entries) => { if (!cancelled) setRoots(entries); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [cwd, refreshKey, treeRefreshKey, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -791,7 +792,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: 11 }}>
               <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {uploadSummary.uploaded.length > 0 && (
-                  <span title={`${uploadSummary.uploaded.length} uploaded`} aria-label={`${uploadSummary.uploaded.length} uploaded`} style={{ display: "flex", alignItems: "center", gap: 3, color: "#22c55e" }}>
+                  <span title={t("files.uploadedCount", { count: uploadSummary.uploaded.length })} aria-label={t("files.uploadedCount", { count: uploadSummary.uploaded.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "#22c55e" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="m5 12 4 4L19 6" />
                     </svg>
@@ -799,7 +800,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   </span>
                 )}
                 {uploadSummary.skipped.length > 0 && (
-                  <span title={`${uploadSummary.skipped.length} skipped`} aria-label={`${uploadSummary.skipped.length} skipped`} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-dim)" }}>
+                  <span title={t("files.skippedCount", { count: uploadSummary.skipped.length })} aria-label={t("files.skippedCount", { count: uploadSummary.skipped.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-dim)" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                       <circle cx="12" cy="12" r="9" />
                       <path d="M8 12h8" />
@@ -808,7 +809,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   </span>
                 )}
                 {uploadSummary.errors.length > 0 && (
-                  <span title={`${uploadSummary.errors.length} failed`} aria-label={`${uploadSummary.errors.length} failed`} style={{ display: "flex", alignItems: "center", gap: 3, color: "#f87171" }}>
+                  <span title={t("files.failedCount", { count: uploadSummary.errors.length })} aria-label={t("files.failedCount", { count: uploadSummary.errors.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "#f87171" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 3 2.5 20h19L12 3Z" />
                       <path d="M12 9v4" />
@@ -872,7 +873,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {(changesCollapsed || gitFiles.length === 0) && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>{t("files.loading")}</div>
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
           ) : (

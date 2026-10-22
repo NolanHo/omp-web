@@ -90,6 +90,10 @@ function harness({ sessionId = "a", runtimeId = "runtime:r1" } = {}) {
     agentRunningRef: { current: false },
     sdkAgentActiveRef: { current: false },
     EVENT_STREAM_CONNECT_TIMEOUT_MS: 5_000,
+    // The hook translates user-facing copy before it leaves the callback; the
+    // assertions here never inspect message text, so the key itself is a
+    // faithful stub for the provider-backed translator.
+    t: (key) => key,
     opts: {},
     onSessionForked: (...args) => effects.push(["identity", ...args]),
     rememberSessionContinuation: (...args) => effects.push(["remember", ...args]),
@@ -361,7 +365,9 @@ test("unmount cancels a pending ensure and cannot accept a queued connected fram
   current.frame({ type: "connected", sessionId: "b", runtimeId: "runtime:r2" });
   await tick();
   assert.equal(ensuring.status, "rejected");
-  assert.match(ensuring.error.message, /no longer active/);
+  // The translator stub returns keys, so the inactive-session rejection shows
+  // up as the key the hook resolved at throw time.
+  assert.equal(ensuring.error.message, "chat.sessionInactive");
   assert.equal(h.bindings.runtimeIdRef.current, null);
   assert.deepEqual(h.effects, []);
   assert.equal(h.timers.size, 0);
