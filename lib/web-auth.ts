@@ -5,7 +5,7 @@ import {
   type WebAuthStoreOptions,
 } from "../bin/web-auth-store.js";
 
-export const OMP_WEB_AUTH_USERNAME = "omp";
+export const OMP_WEB_AUTH_USERNAME = "nolan";
 
 /**
  * Outcome of checking one request's credentials.

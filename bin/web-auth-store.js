@@ -25,7 +25,7 @@ const { homedir } = require("node:os");
 const { basename, dirname, join, resolve } = require("node:path");
 
 /** Basic Auth username omp-web accepts. The password is the only secret. */
-const WEB_AUTH_USERNAME = "omp";
+const WEB_AUTH_USERNAME = "nolan";
 
 /** Credential filename, kept next to the agent configuration. */
 const WEB_AUTH_FILENAME = "omp-web-auth.json";
