@@ -327,7 +327,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             padding: "8px 12px",
             fontSize: 14,
             lineHeight: 1.6,
-            color: "var(--text)",
+            color: "var(--user-text)",
             wordBreak: "break-word",
             maxHeight: USER_BUBBLE_MAX_HEIGHT,
             overflowY: "auto",

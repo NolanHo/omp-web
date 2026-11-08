@@ -82,6 +82,20 @@ export async function getWebThemePalette(name: string): Promise<WebThemePalette>
   const muted = ensureContrast(rawMuted, text, [pageBg, panelBg], 6);
   const dim = ensureContrast(rawDim, text, [pageBg, panelBg], 5);
   const accent = firstColor(colors.accent, colors.borderAccent, text);
+  // omp's CLI resolves the user bubble foreground through `fgOnBg`
+  // (`userMessageText` on `userMessageBg`); mirror that instead of reusing the
+  // page text colour, which can vanish on saturated bubble backgrounds.
+  const userBg = firstColor(colors.userMessageBg, panelBg);
+  const userTextTarget = (relativeLuminance(userBg) ?? 0) > 0.5 ? "#000000" : "#ffffff";
+  // `getResolvedThemeColors` fills an empty `userMessageText` with the page
+  // foreground, which can fail on a saturated bubble (porcelain resolves it to
+  // black on wedgwood blue: 3.1:1). Only trust it when it clears 4.5:1.
+  const resolvedUserText = firstColor(colors.userMessageText, "");
+  const userText = (contrastRatio(resolvedUserText, userBg) ?? 0) >= 4.5
+    ? resolvedUserText
+    : userTextTarget;
+  const userMuted = ensureContrast(mixHex(userText, userBg, 0.3), userText, [userBg], 4.5);
+  const userLink = ensureContrast(firstColor(colors.mdLink, accent), userText, [userBg], 4.5);
 
   return {
     name,
@@ -97,7 +111,11 @@ export async function getWebThemePalette(name: string): Promise<WebThemePalette>
       "--text-dim": dim,
       "--accent": accent,
       "--accent-hover": mixHex(accent, text, 0.16),
-      "--user-bg": firstColor(colors.userMessageBg, panelBg),
+      "--user-bg": userBg,
+      "--user-text": userText,
+      "--user-muted": userMuted,
+      "--user-link": userLink,
+      "--user-link-hover": mixHex(userLink, userText, 0.18),
       "--assistant-bg": pageBg,
       "--tool-bg": firstColor(colors.toolPendingBg, panelBg),
       "--bg-subtle": firstColor(exported.infoBg, colors.customMessageBg, hoverBg),

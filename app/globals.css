@@ -53,6 +53,12 @@
   --accent: #0082b3;      /* titanium deepBlue */
   --accent-hover: #00b4ff;
   --user-bg: #eef2f6;
+  --user-text: #17191d;
+  --user-muted: #505860;
+  --user-link: #0082b3;
+  --user-link-hover: #00b4ff;
+  --user-subtle: color-mix(in srgb, var(--user-bg) 90%, #000);
+  --user-border: color-mix(in srgb, var(--user-bg) 75%, #000);
   --assistant-bg: #ffffff;
   --tool-bg: #f4f6f8;
   --bg-subtle: rgba(0,0,0,0.035);
@@ -74,6 +80,10 @@ html.dark {
   --accent: #00b4ff;      /* electricBlue */
   --accent-hover: #4fcdff;
   --user-bg: #0f1216;     /* darkTitanium */
+  --user-text: #e8ecf4;
+  --user-muted: #9ca3b0;
+  --user-link: #4fcdff;
+  --user-link-hover: #8fe0ff;
   --assistant-bg: #151820;
   --tool-bg: #0f1216;
   --bg-subtle: rgba(232,236,244,0.05);
@@ -364,6 +374,26 @@ pre, code {
 .markdown-user-message p {
   white-space: pre-wrap;
 }
+
+/* The bubble background comes from omp's `userMessageBg`, which can be a
+   saturated colour (porcelain uses wedgwood blue). Remap the markdown palette
+   inside the bubble so foregrounds stay readable on that background. */
+.markdown-user-message {
+  --text: var(--user-text);
+  --text-muted: var(--user-muted);
+  --text-dim: var(--user-muted);
+  --accent: var(--user-link);
+  --accent-hover: var(--user-link-hover);
+  --bg-subtle: var(--user-subtle);
+  --bg-panel: var(--user-subtle);
+  --border: var(--user-border);
+  color: var(--user-text);
+}
+.markdown-user-message a {
+  color: var(--user-link);
+  text-decoration-color: color-mix(in srgb, var(--user-link) 55%, transparent);
+}
+.markdown-user-message a:hover { text-decoration-color: var(--user-link); }
 
 .markdown-custom-message {
   line-height: 1.32;
