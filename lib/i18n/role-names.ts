@@ -20,6 +20,7 @@ export const BUILTIN_ROLE_IDS = [
   "memory",
   "task",
   "advisor",
+  "widget",
   "image",
   "web",
   "speech",

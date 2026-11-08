@@ -750,6 +750,7 @@ export const enLocale: LocalePlugin = {
     "roles.name.memory": "Memory",
     "roles.name.task": "Subtask",
     "roles.name.advisor": "Advisor",
+    "roles.name.widget": "Job widgets",
     "roles.name.image": "Image generation",
     "roles.name.web": "Web search",
     "roles.name.speech": "Speech",

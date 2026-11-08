@@ -750,6 +750,7 @@ export const zhCNLocale: LocalePlugin = {
     "roles.name.memory": "记忆",
     "roles.name.task": "子任务",
     "roles.name.advisor": "顾问",
+    "roles.name.widget": "任务组件",
     "roles.name.image": "图像生成",
     "roles.name.web": "网页搜索",
     "roles.name.speech": "语音",
