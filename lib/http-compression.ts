@@ -26,6 +26,10 @@ export const MIN_COMPRESSED_BODY_BYTES = 1024;
  * A payload is only encoded when the result is meaningfully smaller: compressing
  * an already-compressed body (base64 images, incompressible tool output) costs
  * CPU and adds bytes.
+ *
+ * In practice a transcript is 5-7x smaller once encoded, so this is a defensive
+ * net for a pathological payload rather than a branch real traffic takes; it is
+ * skipped only for a client that refused identity, which leaves no alternative.
  */
 const MIN_COMPRESSION_GAIN = 0.9;
 
@@ -42,7 +46,7 @@ export type ContentEncoding = "br" | "gzip";
  * with raw JSON would ignore its own statement. See `jsonResponse`.
  */
 export type EncodingChoice =
-  | { kind: "encoded"; encoding: ContentEncoding }
+  | { kind: "encoded"; encoding: ContentEncoding; identityAcceptable: boolean }
   | { kind: "identity" }
   | { kind: "unacceptable" };
 
@@ -69,10 +73,19 @@ function parseAcceptEncoding(header: string): Map<string, number> {
 
     let quality = 1;
     let malformed = false;
+    let sawQuality = false;
     for (const param of params) {
       const separator = param.indexOf("=");
-      if (separator === -1) continue;
-      if (param.slice(0, separator).trim().toLowerCase() !== "q") continue;
+      const key = (separator === -1 ? param : param.slice(0, separator)).trim().toLowerCase();
+      if (key !== "q") continue;
+      // `q` is defined to carry a weight: a bare `q`, a repeated `q`, or a weight
+      // outside the grammar leaves the entry's intent unknown, so it grants
+      // nothing rather than silently claiming full preference.
+      if (separator === -1 || sawQuality) {
+        malformed = true;
+        break;
+      }
+      sawQuality = true;
       const value = param.slice(separator + 1).trim();
       if (!QVALUE.test(value)) {
         malformed = true;
@@ -104,17 +117,20 @@ export function selectContentEncoding(acceptEncoding: string | null | undefined)
   const entries = parseAcceptEncoding(acceptEncoding);
   const wildcard = entries.get("*");
   const qualityOf = (name: string): number => entries.get(name) ?? wildcard ?? 0;
+  const identityAcceptable = (entries.has("identity") ? entries.get("identity")! : (wildcard ?? 1)) > 0;
 
   const brotli = qualityOf("br");
   const gzipQuality = qualityOf("gzip");
   if (brotli > 0 || gzipQuality > 0) {
-    if (brotli <= 0) return { kind: "encoded", encoding: "gzip" };
-    if (gzipQuality <= 0) return { kind: "encoded", encoding: "br" };
-    return { kind: "encoded", encoding: brotli >= gzipQuality ? "br" : "gzip" };
+    const encoding: ContentEncoding = brotli <= 0
+      ? "gzip"
+      : gzipQuality <= 0
+        ? "br"
+        : brotli >= gzipQuality ? "br" : "gzip";
+    return { kind: "encoded", encoding, identityAcceptable };
   }
 
-  const identity = entries.has("identity") ? entries.get("identity")! : (wildcard ?? 1);
-  return identity > 0 ? { kind: "identity" } : { kind: "unacceptable" };
+  return identityAcceptable ? { kind: "identity" } : { kind: "unacceptable" };
 }
 
 /** Encode a body with the chosen algorithm. */
@@ -136,9 +152,10 @@ export async function compressBody(body: Uint8Array, encoding: ContentEncoding):
  * anyway, and the copy is a few milliseconds even for a large transcript.
  */
 function toBodyInit(body: Uint8Array): Uint8Array<ArrayBuffer> {
-  const bytes = new Uint8Array(new ArrayBuffer(body.byteLength));
-  bytes.set(body);
-  return bytes;
+  // Node's `Buffer` always views a plain `ArrayBuffer` (never a shared one), and
+  // both sources here — `Buffer.from(string)` and zlib's output — own their
+  // bytes, so no copy is needed; only the DOM type parameter has to be narrowed.
+  return body as Uint8Array<ArrayBuffer>;
 }
 
 /**
@@ -150,6 +167,9 @@ function toBodyInit(body: Uint8Array): Uint8Array<ArrayBuffer> {
  *
  * A client that refuses identity and offers no encoding we can produce gets an
  * empty `406`, not raw JSON: the body is the one thing it said it cannot accept.
+ * For the same reason a client that refused identity gets an encoded body even
+ * when the payload is small enough, or gains too little, to be worth encoding —
+ * the size floor is a preference, and the client's refusal is a constraint.
  */
 export async function jsonResponse(
   request: Request,
@@ -168,15 +188,16 @@ export async function jsonResponse(
 
   headers.set("Content-Type", "application/json; charset=utf-8");
   const raw = Buffer.from(JSON.stringify(data), "utf8");
+  const mustEncode = choice.kind === "encoded" && !choice.identityAcceptable;
 
-  if (choice.kind === "identity" || raw.length < MIN_COMPRESSED_BODY_BYTES) {
+  if (choice.kind === "identity" || (!mustEncode && raw.length < MIN_COMPRESSED_BODY_BYTES)) {
     headers.set("Content-Length", String(raw.length));
     return new Response(toBodyInit(raw), { status: init.status ?? 200, headers });
   }
 
   const { encoding } = choice;
   const compressed = await compressBody(raw, encoding);
-  if (compressed.length >= raw.length * MIN_COMPRESSION_GAIN) {
+  if (!mustEncode && compressed.length >= raw.length * MIN_COMPRESSION_GAIN) {
     headers.set("Content-Length", String(raw.length));
     return new Response(toBodyInit(raw), { status: init.status ?? 200, headers });
   }
