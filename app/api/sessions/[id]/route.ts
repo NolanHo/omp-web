@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
+import { jsonResponse } from "@/lib/http-compression";
 import {
   resolveSessionPath,
   resolveSessionIdByPath,
@@ -75,17 +76,23 @@ export async function GET(
       transient: !filePath || !existsSync(filePath),
     } : null;
 
-    return NextResponse.json({
-      sessionId: liveRpc?.sessionId ?? sm.getSessionId(),
-      runtimeId: liveRpc?.runtimeId,
-      filePath,
-      info,
-      leafId,
-      tree,
-      context,
-      totalActiveMs,
-      ...(contextUsage ? { contextUsage } : {}),
-    });
+    // The response carries a whole transcript (megabytes for a long session),
+    // so it is compressed on the way out.
+    return await jsonResponse(
+      req,
+      {
+        sessionId: liveRpc?.sessionId ?? sm.getSessionId(),
+        runtimeId: liveRpc?.runtimeId,
+        filePath,
+        info,
+        leafId,
+        tree,
+        context,
+        totalActiveMs,
+        ...(contextUsage ? { contextUsage } : {}),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

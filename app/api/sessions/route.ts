@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsonResponse } from "@/lib/http-compression";
 import {
   attachSessionProjectInfo,
   listAllSessions,
@@ -20,7 +21,10 @@ export async function GET(req: Request) {
     const archived = readArchivedIds();
     const sessions = mergeSessionLists(persistedSessions, runtimeSessions)
       .filter((s) => (showArchived ? archived.has(s.id) : !archived.has(s.id)));
-    return NextResponse.json(
+    // A full session list runs to megabytes of JSON; the sidebar pulls it on
+    // every load, so it is compressed like the transcript endpoints.
+    return await jsonResponse(
+      req,
       { sessions, ...getRpcSessionActivitySnapshot() },
       { headers: { "Cache-Control": "no-store" } },
     );

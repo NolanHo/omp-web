@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
+import { jsonResponse } from "@/lib/http-compression";
 import { resolveSessionPath, buildSessionContext, getHistoricalContextUsage } from "@/lib/session-reader";
 import { getRpcSession, getFinalRpcSessionId } from "@/lib/rpc-manager";
 
@@ -31,12 +32,16 @@ export async function GET(
     });
     const contextUsage = await getHistoricalContextUsage(entries, leafId);
 
-    return NextResponse.json({
-      sessionId: liveRpc?.sessionId ?? sm.getSessionId(),
-      runtimeId: liveRpc?.runtimeId ?? null,
-      context,
-      ...(contextUsage ? { contextUsage } : {}),
-    });
+    return await jsonResponse(
+      req,
+      {
+        sessionId: liveRpc?.sessionId ?? sm.getSessionId(),
+        runtimeId: liveRpc?.runtimeId ?? null,
+        context,
+        ...(contextUsage ? { contextUsage } : {}),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
