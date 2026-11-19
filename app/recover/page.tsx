@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
 import { translateWithCode } from "@/lib/i18n/rich-text";
 import type { TranslationParams } from "@/lib/i18n/types";
+import { WEB_AUTH_USERNAME } from "@/lib/web-auth-username";
 import styles from "./recover.module.css";
 
 /**
@@ -132,7 +133,7 @@ function RecoverCard() {
         {stage === "done" ? (
           <>
             <p className={styles.lead}>
-              {translateWithCode(t, "recover.doneLead", {}, { username: "omp" })}
+              {translateWithCode(t, "recover.doneLead", {}, { username: WEB_AUTH_USERNAME })}
             </p>
             <Link className={styles.primary} href="/">{t("recover.back")}</Link>
           </>

@@ -4,6 +4,7 @@ import {
   isApiRequestHostAllowed,
 } from "@/lib/request-security";
 import { authorizeWebRequest } from "@/lib/web-auth";
+import { WEB_AUTH_USERNAME } from "@/lib/web-auth-username";
 
 /**
  * The password-recovery surface, and the only thing that answers without
@@ -39,7 +40,7 @@ function unauthorizedPage(): string {
 <body>
 <main>
   <h1>Authentication required</h1>
-  <p>omp-web is locked. Reload the page and sign in with the username <code>omp</code> and your password.</p>
+  <p>omp-web is locked. Reload the page and sign in with the username <code>${WEB_AUTH_USERNAME}</code> and your password.</p>
   <p>Forgot it? <a href="${RECOVERY_PAGE}">Recover access</a> — you will need to read a one-time code off the console
      of the machine running omp-web.</p>
 </main>

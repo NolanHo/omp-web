@@ -24,7 +24,13 @@ const { homedir } = require("node:os");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { basename, dirname, join, resolve } = require("node:path");
 
-/** Basic Auth username omp-web accepts. The password is the only secret. */
+/**
+ * Basic Auth username omp-web accepts. The password is the only secret.
+ *
+ * `lib/web-auth-username.ts` carries the same value for the middleware and the
+ * browser-facing pages; this copy exists because the launcher loads this file as
+ * plain CommonJS. Change both together.
+ */
 const WEB_AUTH_USERNAME = "nolan";
 
 /** Credential filename, kept next to the agent configuration. */

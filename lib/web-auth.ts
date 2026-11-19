@@ -4,8 +4,13 @@ import {
   verifyWebPassword,
   type WebAuthStoreOptions,
 } from "../bin/web-auth-store.js";
+import { WEB_AUTH_USERNAME } from "./web-auth-username";
 
-export const OMP_WEB_AUTH_USERNAME = "nolan";
+/**
+ * Re-exported so the authorizing surfaces keep one import, while the value
+ * itself lives in a module a client bundle may also load.
+ */
+export const OMP_WEB_AUTH_USERNAME = WEB_AUTH_USERNAME;
 
 /**
  * Outcome of checking one request's credentials.
