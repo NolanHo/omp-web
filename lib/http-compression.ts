@@ -147,9 +147,9 @@ export async function compressBody(body: Uint8Array, encoding: ContentEncoding):
 /**
  * A `Response` body that TypeScript accepts.
  *
- * Node's `Buffer` views a shared-typed `ArrayBufferLike`, which the DOM
- * `BodyInit` union rejects; an owned `ArrayBuffer` is what the runtime expects
- * anyway, and the copy is a few milliseconds even for a large transcript.
+ * Node's `Buffer` is typed over `ArrayBufferLike`, which the DOM `BodyInit`
+ * union will not take; only the type parameter needs narrowing, and the bytes
+ * already belong to a plain `ArrayBuffer`.
  */
 function toBodyInit(body: Uint8Array): Uint8Array<ArrayBuffer> {
   // Node's `Buffer` always views a plain `ArrayBuffer` (never a shared one), and
